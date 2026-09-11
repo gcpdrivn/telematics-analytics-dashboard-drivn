@@ -1,0 +1,33 @@
+[project]
+name = "telematics-analytics-dashboard-drivn"
+version = "0.1.0"
+description = "Telematics analytics platform: data ingestion pipeline and (future) backend for Drivn fleet reports"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-bigquery>=3.25.0",
+    "pandas>=2.2.0",
+    "openpyxl>=3.1.0",
+    "pyarrow>=17.0.0",
+    "db-dtypes>=1.3.0",
+    "python-dotenv>=1.0.1",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.scripts]
+ingest-utilization = "ingestion.cli:main"
+ingest-mileage-soc = "ingestion.cli:main_mileage"
+seed-dimensions = "ingestion.cli:main_seed_dimensions"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ingestion", "backend"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]

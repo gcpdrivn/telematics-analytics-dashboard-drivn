@@ -740,12 +740,16 @@ def build_vehicle_trajectories(
     df_clean: pd.DataFrame, active_stats: pd.DataFrame, mileage_valid: dict[str, float], n: int = 5
 ) -> dict:
     matrix_dates = sorted(df_clean["Report Date"].dt.strftime("%Y-%m-%d").unique(), reverse=True)
-    dist_map = dict(
-        zip(
-            zip(df_clean["Base License Plate"], df_clean["Report Date"].dt.strftime("%Y-%m-%d")),
-            df_clean["Distance"],
-        )
+    plate_date_keys = list(
+        zip(df_clean["Base License Plate"], df_clean["Report Date"].dt.strftime("%Y-%m-%d"))
     )
+    # No default on these .get() lookups: a missing (plate, date) key means the
+    # vehicle's device never reported that day at all (a transmission gap),
+    # which is a different situation from a real row reporting Distance == 0
+    # (device reported fine, vehicle just didn't move). Collapsing both to 0.0
+    # made them indistinguishable on the trajectory chart.
+    dist_map = dict(zip(plate_date_keys, df_clean["Distance"]))
+    gps_map = dict(zip(plate_date_keys, df_clean["GPS Disconnection count"]))
 
     out: dict = {"dates": matrix_dates, "customers": {}}
     for cust in CUSTOMERS:
@@ -777,13 +781,28 @@ def build_vehicle_trajectories(
         v_list = []
         for s in selection:
             p = s["plate"]
-            dists = [round(float(dist_map.get((p, d), 0.0)), 1) for d in matrix_dates]
-            nonzero = [x for x in dists if x > 0]
+            dists: list[float | None] = []
+            gps_disconnections: list[int | None] = []
+            for d in matrix_dates:
+                raw = dist_map.get((p, d))
+                dists.append(round(float(raw), 1) if raw is not None and not pd.isna(raw) else None)
+                gps_raw = gps_map.get((p, d))
+                gps_disconnections.append(
+                    int(gps_raw) if gps_raw is not None and not pd.isna(gps_raw) else None
+                )
+            nonzero = [x for x in dists if x is not None and x > 0]
             avg_act = round(float(sum(nonzero) / len(nonzero)), 1) if nonzero else 0.0
             soc_val = s["soc"]
             soc_str = f"SoC: {soc_val:.1f} km/SoC" if soc_val is not None else "SoC: N/A"
             v_list.append(
-                {"plate": p, "soc": soc_val, "soc_str": soc_str, "avg_km": avg_act, "distances": dists}
+                {
+                    "plate": p,
+                    "soc": soc_val,
+                    "soc_str": soc_str,
+                    "avg_km": avg_act,
+                    "distances": dists,
+                    "gps_disconnections": gps_disconnections,
+                }
             )
 
         out["customers"][cust] = {"notice": notice, "vehicles": v_list}

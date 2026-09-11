@@ -10,8 +10,24 @@ export function VehicleTrajectoryChart({ data }: { data: TrajectoryResponse }) {
         name: `${v.plate} (${v.soc_str})`,
         x: data.dates,
         y: v.distances,
+        // Plotly's default already leaves a gap in the line wherever y is
+        // null -- that gap IS the "device reported nothing this day"
+        // signal (a transmission problem), distinct from a point sitting
+        // at 0 (device reported fine, vehicle just didn't move that day).
+        connectgaps: false,
         line: { width: 2.2 },
         marker: { size: 5 },
+        text: data.dates.map((d, i) => {
+          const dist = v.distances[i]
+          if (dist === null) return `${d}<br>No data received`
+          const gps = v.gps_disconnections[i]
+          const gpsNote =
+            gps !== null && gps > 0
+              ? `<br>⚠️ ${gps} GPS disconnection${gps > 1 ? "s" : ""}`
+              : ""
+          return `${d}<br>${dist} km${gpsNote}`
+        }),
+        hoverinfo: "text" as const,
       }))}
       layout={{
         paper_bgcolor: "transparent",

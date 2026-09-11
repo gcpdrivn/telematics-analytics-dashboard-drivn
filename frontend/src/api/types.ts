@@ -164,7 +164,10 @@ export interface TrajectoryVehicle {
   soc: number | null
   soc_str: string
   avg_km: number
-  distances: number[]
+  // null = the vehicle's device reported nothing that day (transmission gap),
+  // distinct from a real 0 (device reported fine, vehicle just didn't move).
+  distances: (number | null)[]
+  gps_disconnections: (number | null)[]
 }
 
 export interface TrajectoryResponse {

@@ -4,10 +4,12 @@ import type { Category, KpiSummary, Scope, VehiclesResponse } from "../api/types
 import { KpiCards } from "../components/KpiCards"
 import { TopBottomBarChart } from "../components/TopBottomBarChart"
 import { VehicleTable } from "../components/VehicleTable"
+import { useDateRange } from "../hooks/useDateRange"
 
 /** Shared shell for /buses and /trucks -- same layout (KPI cards, top5/bottom5
  * bar charts, master table), different category filter. */
 export function CategoryPage({ category, label }: { category: Category; label: string }) {
+  const [range] = useDateRange()
   const [kpi, setKpi] = useState<KpiSummary | null>(null)
   const [vehicles, setVehicles] = useState<VehiclesResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -16,7 +18,7 @@ export function CategoryPage({ category, label }: { category: Category; label: s
     let cancelled = false
     setKpi(null)
     setVehicles(null)
-    Promise.all([getKpiSummary(category as Scope), getVehicles(category)])
+    Promise.all([getKpiSummary(category as Scope, range), getVehicles(category, range)])
       .then(([k, v]) => {
         if (cancelled) return
         setKpi(k)
@@ -26,7 +28,7 @@ export function CategoryPage({ category, label }: { category: Category; label: s
     return () => {
       cancelled = true
     }
-  }, [category])
+  }, [category, range.start, range.end])
 
   if (error) return <div className="error-box">Failed to load: {error}</div>
   if (!kpi || !vehicles) return <div className="loading">Loading {label.toLowerCase()}…</div>

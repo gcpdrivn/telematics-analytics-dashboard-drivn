@@ -17,10 +17,12 @@ import { SeasonalityChart } from "../components/CustomerCharts/SeasonalityChart"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
 import { VehicleTrajectoryChart } from "../components/VehicleTrajectoryChart"
+import { useDateRange } from "../hooks/useDateRange"
 
 const TRAJECTORY_CUSTOMERS: CustomerName[] = ["FreshBus", "ZingBus", "BillionE"]
 
 export function CustomersPage() {
+  const [range] = useDateRange()
   const [kpi, setKpi] = useState<KpiSummary | null>(null)
   const [analytics, setAnalytics] = useState<CustomerAnalytics | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +35,9 @@ export function CustomersPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getKpiSummary("customers"), getCustomerAnalytics()])
+    setKpi(null)
+    setAnalytics(null)
+    Promise.all([getKpiSummary("customers", range), getCustomerAnalytics(range)])
       .then(([k, a]) => {
         if (cancelled) return
         setKpi(k)
@@ -43,23 +47,25 @@ export function CustomersPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [range.start, range.end])
 
   useEffect(() => {
     let cancelled = false
-    getCrosstabMatrix(crosstabCust).then((d) => !cancelled && setCrosstab(d))
+    setCrosstab(null)
+    getCrosstabMatrix(crosstabCust, range).then((d) => !cancelled && setCrosstab(d))
     return () => {
       cancelled = true
     }
-  }, [crosstabCust])
+  }, [crosstabCust, range.start, range.end])
 
   useEffect(() => {
     let cancelled = false
-    getVehicleTrajectories(trajCust).then((d) => !cancelled && setTrajectory(d))
+    setTrajectory(null)
+    getVehicleTrajectories(trajCust, range).then((d) => !cancelled && setTrajectory(d))
     return () => {
       cancelled = true
     }
-  }, [trajCust])
+  }, [trajCust, range.start, range.end])
 
   if (error) return <div className="error-box">Failed to load: {error}</div>
   if (!kpi || !analytics) return <div className="loading">Loading customer analytics…</div>

@@ -1,3 +1,8 @@
+export interface DateRangeResponse {
+  min_date: string
+  max_date: string
+}
+
 export type Scope = "all" | "Bus" | "Truck" | "customers"
 export type Category = "all" | "Bus" | "Truck"
 export type CustomerName = "FreshBus" | "ZingBus" | "BillionE"

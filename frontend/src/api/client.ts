@@ -4,6 +4,7 @@ import type {
   CrosstabResponse,
   CustomerAnalytics,
   CustomerName,
+  DateRangeResponse,
   KpiSummary,
   Scope,
   TrajectoryResponse,
@@ -38,22 +39,51 @@ function getJSON<T>(path: string): Promise<T> {
   return promise as Promise<T>
 }
 
-export function getKpiSummary(scope: Scope): Promise<KpiSummary> {
-  return getJSON(`/api/kpi-summary?scope=${scope}`)
+/** Absent (null) means "full available range" -- matches the backend's own
+ * default when start_date/end_date aren't passed at all, so leaving the date
+ * picker untouched behaves exactly like it did before this filter existed. */
+export interface DateRange {
+  start: string | null
+  end: string | null
 }
 
-export function getCustomerAnalytics(): Promise<CustomerAnalytics> {
-  return getJSON(`/api/customers/analytics`)
+function withDateRange(params: URLSearchParams, range?: DateRange): URLSearchParams {
+  if (range?.start) params.set("start_date", range.start)
+  if (range?.end) params.set("end_date", range.end)
+  return params
 }
 
-export function getCrosstabMatrix(customer: CrosstabCustomer): Promise<CrosstabResponse> {
-  return getJSON(`/api/crosstab-matrix?customer=${customer}`)
+export function getKpiSummary(scope: Scope, range?: DateRange): Promise<KpiSummary> {
+  const params = withDateRange(new URLSearchParams({ scope }), range)
+  return getJSON(`/api/kpi-summary?${params}`)
 }
 
-export function getVehicles(category: Category): Promise<VehiclesResponse> {
-  return getJSON(`/api/vehicles?category=${category}`)
+export function getCustomerAnalytics(range?: DateRange): Promise<CustomerAnalytics> {
+  const params = withDateRange(new URLSearchParams(), range)
+  return getJSON(`/api/customers/analytics?${params}`)
 }
 
-export function getVehicleTrajectories(customer: CustomerName): Promise<TrajectoryResponse> {
-  return getJSON(`/api/vehicle-trajectories?customer=${customer}`)
+export function getCrosstabMatrix(
+  customer: CrosstabCustomer,
+  range?: DateRange
+): Promise<CrosstabResponse> {
+  const params = withDateRange(new URLSearchParams({ customer }), range)
+  return getJSON(`/api/crosstab-matrix?${params}`)
+}
+
+export function getVehicles(category: Category, range?: DateRange): Promise<VehiclesResponse> {
+  const params = withDateRange(new URLSearchParams({ category }), range)
+  return getJSON(`/api/vehicles?${params}`)
+}
+
+export function getVehicleTrajectories(
+  customer: CustomerName,
+  range?: DateRange
+): Promise<TrajectoryResponse> {
+  const params = withDateRange(new URLSearchParams({ customer }), range)
+  return getJSON(`/api/vehicle-trajectories?${params}`)
+}
+
+export function getDateRange(): Promise<DateRangeResponse> {
+  return getJSON(`/api/date-range`)
 }

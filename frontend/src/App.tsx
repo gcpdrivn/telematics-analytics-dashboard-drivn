@@ -1,4 +1,5 @@
-import { NavLink, Route, Routes } from "react-router-dom"
+import { NavLink, Route, Routes, useLocation } from "react-router-dom"
+import { DateRangePicker } from "./components/DateRangePicker"
 import { ThemeToggle } from "./components/ThemeToggle"
 import { BusesPage } from "./pages/BusesPage"
 import { CustomersPage } from "./pages/CustomersPage"
@@ -10,6 +11,10 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export default function App() {
+  // Preserve ?start=&end= across page nav -- a plain `to="/buses"` would
+  // otherwise drop the date filter every time you switch tabs.
+  const location = useLocation()
+
   return (
     <div className="wrapper">
       <header className="header">
@@ -23,19 +28,20 @@ export default function App() {
         </div>
         <div className="header-controls">
           <nav className="header-segmented-nav">
-            <NavLink to="/" end className={navClass}>
+            <NavLink to={{ pathname: "/", search: location.search }} end className={navClass}>
               Overview
             </NavLink>
-            <NavLink to="/buses" className={navClass}>
+            <NavLink to={{ pathname: "/buses", search: location.search }} className={navClass}>
               Buses
             </NavLink>
-            <NavLink to="/trucks" className={navClass}>
+            <NavLink to={{ pathname: "/trucks", search: location.search }} className={navClass}>
               Trucks
             </NavLink>
-            <NavLink to="/customers" className={navClass}>
+            <NavLink to={{ pathname: "/customers", search: location.search }} className={navClass}>
               Customers
             </NavLink>
           </nav>
+          <DateRangePicker />
           <ThemeToggle />
         </div>
       </header>

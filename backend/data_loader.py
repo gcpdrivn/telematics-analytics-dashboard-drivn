@@ -171,6 +171,7 @@ def get_clean_context(
         mileage_valid = derived["mileage_valid"]
         active_stats = derived["active_stats"]
         crosstab_matrix = derived["crosstab_matrix"]
+        observation_days = derived["observation_days"]
     else:
         derived = _build_derived(tables)
         df_clean = derived["df_clean"]
@@ -179,10 +180,12 @@ def get_clean_context(
         if end_date is not None:
             df_clean = df_clean[df_clean["Report Date"] <= pd.Timestamp(end_date)]
         mileage_valid = derived["mileage_valid"]
-        active_stats = metrics.build_active_stats(df_clean, mileage_valid)
+        # Recomputed for the filtered window, not reused from the unfiltered
+        # `derived` bundle -- Bus tenure (build_active_stats) depends on this
+        # being the size of the window actually in scope here.
+        observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
+        active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
         crosstab_matrix = metrics.build_crosstab_matrix(df_clean)
-
-    observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
 
     return {
         "df_clean": df_clean,
@@ -200,7 +203,8 @@ def _build_derived(tables: dict[str, pd.DataFrame]) -> dict:
         tables["raw_utilization"], tables["dim_vehicle"], tables["dim_customer"]
     )
     mileage_valid = metrics.valid_mileage_map(tables["mileage"])
-    active_stats = metrics.build_active_stats(df_clean, mileage_valid)
+    observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
+    active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
     # build_crosstab_matrix computes all 4 customer views (All/FreshBus/ZingBus/
     # BillionE) in one pass regardless of which one a request asks for, so it
     # belongs in the shared cache rather than being redone per customer filter.
@@ -210,4 +214,5 @@ def _build_derived(tables: dict[str, pd.DataFrame]) -> dict:
         "mileage_valid": mileage_valid,
         "active_stats": active_stats,
         "crosstab_matrix": crosstab_matrix,
+        "observation_days": observation_days,
     }

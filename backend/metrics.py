@@ -198,9 +198,21 @@ def get_final_odometer(sub_df: pd.DataFrame) -> float:
     return np.nan
 
 
-def build_active_stats(df_clean: pd.DataFrame, mileage_valid: dict[str, float]) -> pd.DataFrame:
+def build_active_stats(
+    df_clean: pd.DataFrame, mileage_valid: dict[str, float], observation_days: float
+) -> pd.DataFrame:
     """One row per vehicle with total_distance > 0. The base DataFrame every
-    other builder below works from."""
+    other builder below works from.
+
+    observation_days is the size of the (possibly date-filtered) window in
+    scope -- Bus tenure uses it directly rather than a literal 30, since
+    FreshBus/ZingBus are a fixed roster active for the whole window, not
+    just from their own first reported date (unlike trucks, which legitimately
+    onboard progressively). A hardcoded 30 was fine back when the only
+    available data happened to span exactly 30 days; it silently produces
+    active_rate_pct over 100% (more data than 30 days) or an inflated
+    denominator (a filtered window shorter than 30 days) once that stops
+    being true."""
     end_date = df_clean["Report Date"].max()
     veh_type_clubbed = clubbed_vehicle_type(df_clean)
     vol_by_plate = df_clean.groupby("Base License Plate").apply(calc_active_volatility)
@@ -224,7 +236,9 @@ def build_active_stats(df_clean: pd.DataFrame, mileage_valid: dict[str, float]) 
 
     active_stats = stats[stats["total_distance"] > 0].copy()
     active_stats["total_days"] = active_stats.apply(
-        lambda r: 30.0 if r["vehicle_type"] == "Bus" else float((end_date - r["first_date"]).days + 1),
+        lambda r: observation_days
+        if r["vehicle_type"] == "Bus"
+        else float((end_date - r["first_date"]).days + 1),
         axis=1,
     )
     active_stats["avg_km_per_day"] = active_stats.apply(

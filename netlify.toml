@@ -1,0 +1,26 @@
+# Netlify hosts the frontend only -- the FastAPI backend deploys separately
+# (Cloud Run; see README.md "Deployment"). This repo is a monorepo, so `base`
+# tells Netlify to build/publish from frontend/ specifically.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# Proxied server-side (same-origin from the browser's point of view -- no
+# CORS involved), same idea as vite.config.ts's dev-server proxy. Replace
+# the placeholder with your actual Cloud Run URL after the first backend
+# deploy (`gcloud run deploy` prints it). Must come BEFORE the SPA fallback
+# below -- Netlify uses the first matching redirect.
+[[redirects]]
+  from = "/api/*"
+  to = "https://drivn-backend-304868514241.asia-south1.run.app/api/:splat"
+  status = 200
+  force = true
+
+# React Router client-side routes (/buses, /trucks, /customers) aren't real
+# files -- fall back to index.html for anything not already matched above so
+# a hard refresh on /customers doesn't 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

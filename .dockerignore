@@ -1,0 +1,13 @@
+.venv
+frontend
+data
+.env
+.env.example
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+.pytest_cache
+report.html
+telematics_metrics_guide.html
+DYNAMIC_BACKEND_ETL_SPECIFICATION.md

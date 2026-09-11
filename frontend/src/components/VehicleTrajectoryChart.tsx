@@ -18,6 +18,11 @@ export function VehicleTrajectoryChart({ data }: { data: TrajectoryResponse }) {
         plot_bgcolor: "transparent",
         margin: { l: 60, r: 20, t: 20, b: 60 },
         height: 340,
+        // Same fix as ActiveTimelineChart: Plotly treats this as a date axis
+        // and sorts it chronologically regardless of array order, so the
+        // backend already sending `dates` latest-first doesn't control the
+        // rendered direction -- only reversing the axis itself does.
+        xaxis: { autorange: "reversed" },
         yaxis: { title: { text: "Daily Distance Covered (km)" } },
         legend: { orientation: "h", y: -0.25 },
       }}

@@ -23,6 +23,11 @@ export function ActiveTimelineChart({ timeline }: { timeline: ActiveTimeline }) 
       layout={{
         ...PLOT_LAYOUT_BASE,
         height: 300,
+        // Plotly auto-detects these as a date axis and sorts it chronologically
+        // regardless of the order `timeline.dates` was passed in -- reversing
+        // the axis direction (not the data) is what actually puts the latest
+        // date on the left, matching the crosstab matrix's column order.
+        xaxis: { autorange: "reversed" },
         yaxis: { title: { text: "Active %" }, range: [0, 105], ticksuffix: "%" },
       }}
       config={{ responsive: true, displayModeBar: false }}

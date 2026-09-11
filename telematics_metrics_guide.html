@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telematics Metrics, Mathematical Formulations & Fleet Intuition Guide | Drivn</title>
+    
+    <!-- Theme Script for Instant Persistence -->
+    <script>
+        (function() {
+            try {
+                var t = localStorage.getItem('drivn-theme') || localStorage.getItem('theme');
+                if (t === 'dark' || t === 'light') {
+                    document.documentElement.setAttribute('data-theme', t);
+                }
+            } catch(e) {}
+        })();
+    </script>
+    
+    <!-- KaTeX for Scientific Formula Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous" onload="renderMathSafely()"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            /* Drivn Brand Palette */
+            --bg-body: #f0f4f8;
+            --bg-surface: #ffffff;
+            --bg-subtle: #f8fafc;
+            --bg-card-header: #f1f5f9;
+            --border-subtle: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+
+            /* Brand Accent */
+            --accent-brand: #5cb030;
+            --accent-brand-strong: #4d9c25;
+            --accent-brand-subtle: #e8f5db;
+            --accent-brand-border: rgba(92, 176, 48, 0.35);
+
+            /* Indicator Tiers */
+            --color-top: #5cb030;
+            --color-top-subtle: #e8f5db;
+            --color-bottom: #e02424;
+            --color-bottom-subtle: #fef2f2;
+            --color-amber: #ea9234;
+            --color-amber-subtle: #fef3c7;
+            --color-blue: #3b82f6;
+            --color-blue-subtle: #eff6ff;
+
+            /* Elevation */
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+            --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.04);
+            --shadow-hover: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 28px rgba(15, 23, 42, 0.08);
+
+            /* Sidebar */
+            --sidebar-width: 290px;
+        }
+
+        [data-theme="dark"] {
+            --bg-body: #0a0f1a;
+            --bg-surface: #131a26;
+            --bg-subtle: #1a2332;
+            --bg-card-header: #1e293b;
+            --border-subtle: #283041;
+            --border-strong: #3a4358;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --accent-brand: #74d144;
+            --accent-brand-strong: #5cb030;
+            --accent-brand-subtle: rgba(116, 209, 68, 0.16);
+            --accent-brand-border: rgba(116, 209, 68, 0.35);
+
+            --color-top: #74d144;
+            --color-top-subtle: rgba(116, 209, 68, 0.16);
+            --color-bottom: #f87171;
+            --color-bottom-subtle: rgba(248, 113, 113, 0.15);
+            --color-amber: #fbbf24;
+            --color-amber-subtle: rgba(251, 191, 36, 0.15);
+            --color-blue: #60a5fa;
+            --color-blue-subtle: rgba(96, 165, 250, 0.15);
+
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.4);
+            --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.6), 0 12px 28px rgba(0, 0, 0, 0.6);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        /* Layout Container */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            z-index: 50;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem 1.25rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .brand-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            color: var(--accent-brand);
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+
+        .brand-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-brand);
+            box-shadow: 0 0 10px var(--accent-brand);
+        }
+
+        .sidebar-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .sidebar-search {
+            padding: 0.85rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.55rem 0.85rem;
+            font-size: 0.825rem;
+            font-family: inherit;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-brand);
+            box-shadow: 0 0 0 2px var(--accent-brand-subtle);
+        }
+
+        .nav-sections {
+            padding: 1rem 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            flex-grow: 1;
+        }
+
+        .nav-category {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            padding: 0.6rem 0.6rem 0.25rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.65rem;
+            border-radius: 6px;
+            font-size: 0.825rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--bg-subtle);
+            color: var(--accent-brand);
+        }
+
+        .nav-link.active {
+            background: var(--accent-brand-subtle);
+            color: var(--accent-brand);
+            font-weight: 700;
+            border-left: 3px solid var(--accent-brand);
+        }
+
+        .nav-link .badge {
+            font-size: 0.68rem;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: var(--border-subtle);
+            color: var(--text-secondary);
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Main Content Area */
+        .main-content {
+            flex: 1;
+            padding: 2.5rem 3rem 5rem;
+            max-width: 1200px;
+            overflow-x: hidden;
+        }
+
+        /* Top Header Bar */
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2.25rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .header-left h1 {
+            font-size: 2.2rem;
+            font-weight: 900;
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: 0.4rem;
+        }
+
+        .header-left p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            max-width: 780px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+        }
+
+        .btn-ui {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.55rem 0.95rem;
+            font-size: 0.825rem;
+            font-weight: 600;
+            border-radius: 6px;
+            border: 1px solid var(--border-strong);
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .btn-ui:hover {
+            border-color: var(--accent-brand);
+            color: var(--accent-brand);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-ui.primary {
+            background: var(--accent-brand);
+            border-color: var(--accent-brand-strong);
+            color: #ffffff;
+        }
+
+        .btn-ui.primary:hover {
+            background: var(--accent-brand-strong);
+            color: #ffffff;
+        }
+
+        /* Content Sections */
+        .doc-section {
+            margin-bottom: 3.5rem;
+            scroll-margin-top: 2rem;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid var(--border-subtle);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        /* Scientific Metric Cards */
+        .metric-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 2rem;
+            overflow: hidden;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            position: relative;
+        }
+
+        .metric-card:hover {
+            box-shadow: var(--shadow-hover);
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-brand), var(--accent-brand-strong));
+        }
+
+        .metric-card.alert-tier::before {
+            background: linear-gradient(90deg, var(--color-bottom), #f87171);
+        }
+
+        .metric-card.warning-tier::before {
+            background: linear-gradient(90deg, var(--color-amber), #fbbf24);
+        }
+
+        .metric-card-header {
+            padding: 1.15rem 1.5rem;
+            background: var(--bg-card-header);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .metric-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .metric-name {
+            font-size: 1.125rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .metric-symbol-pill {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 700;
+            background: var(--accent-brand-subtle);
+            color: var(--accent-brand);
+            padding: 3px 9px;
+            border-radius: 5px;
+            border: 1px solid var(--accent-brand-border);
+            display: inline-flex;
+            align-items: center;
+            line-height: 1.25;
+        }
+
+        .metric-symbol-pill .katex {
+            font-size: 1.05em;
+            color: var(--accent-brand-strong);
+            font-weight: normal;
+        }
+
+        .metric-tags {
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--border-subtle);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .tag.blue { background: var(--color-blue-subtle); color: var(--color-blue); }
+        .tag.green { background: var(--color-top-subtle); color: var(--color-top); }
+        .tag.amber { background: var(--color-amber-subtle); color: var(--color-amber); }
+        .tag.red { background: var(--color-bottom-subtle); color: var(--color-bottom); }
+
+        .metric-body {
+            padding: 1.5rem;
+        }
+
+        /* Mathematical Formula Display Box */
+        .formula-box {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-subtle);
+            border-left: 4px solid var(--accent-brand);
+            border-radius: 8px;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .formula-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .formula-content {
+            font-size: 1.1rem;
+            overflow-x: auto;
+            padding: 0.35rem 0;
+            color: var(--text-primary);
+        }
+
+        .var-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+        }
+
+        .var-table th {
+            text-align: left;
+            padding: 6px 10px;
+            background: var(--border-subtle);
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.68rem;
+        }
+
+        .var-table td {
+            padding: 6px 10px;
+            border-bottom: 1px solid var(--border-subtle);
+            vertical-align: middle;
+        }
+
+        .var-table code {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--accent-brand);
+        }
+
+        /* Metric Grid Sections (Intuition & Use Cases) */
+        .metric-grid-2col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 1.25rem;
+        }
+
+        @media (max-width: 900px) {
+            .metric-grid-2col {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .intel-block {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+
+        .intel-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .intel-title.intuition { color: #2563eb; }
+        .intel-title.use-case { color: var(--accent-brand-strong); }
+        .intel-title.benchmark { color: var(--color-amber); }
+
+        .intel-text {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .intel-list {
+            margin-left: 1.25rem;
+            margin-top: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .intel-list li b {
+            color: var(--text-primary);
+        }
+
+        /* Benchmark Callout Strip */
+        .benchmark-strip {
+            margin-top: 1.25rem;
+            padding: 0.85rem 1.15rem;
+            background: var(--accent-brand-subtle);
+            border: 1px solid var(--accent-brand-border);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.825rem;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .benchmark-label {
+            font-weight: 700;
+            color: var(--accent-brand-strong);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .benchmark-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Graph Anatomy Card */
+        .graph-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            box-shadow: var(--shadow-card);
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .graph-card-header {
+            padding: 1.25rem 1.5rem;
+            background: var(--bg-card-header);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .graph-card-title {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .graph-card-body {
+            padding: 1.5rem;
+        }
+
+        .graph-specs {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .spec-item {
+            background: var(--bg-subtle);
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .spec-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .spec-val {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Callout Box */
+        .callout {
+            border-left: 4px solid;
+            padding: 1rem 1.25rem;
+            border-radius: 0 8px 8px 0;
+            margin: 1.25rem 0;
+            font-size: 0.875rem;
+            line-height: 1.55;
+        }
+
+        .callout.note {
+            border-color: #3b82f6;
+            background: var(--color-blue-subtle);
+            color: var(--text-primary);
+        }
+
+        .callout.tip {
+            border-color: var(--accent-brand);
+            background: var(--accent-brand-subtle);
+            color: var(--text-primary);
+        }
+
+        .callout.alert {
+            border-color: var(--color-bottom);
+            background: var(--color-bottom-subtle);
+            color: var(--text-primary);
+        }
+
+        .callout.warning {
+            border-color: var(--color-amber);
+            background: var(--color-amber-subtle);
+            color: var(--text-primary);
+        }
+
+        /* Copy Button */
+        .copy-btn {
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-family: inherit;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .copy-btn:hover {
+            color: var(--accent-brand);
+            background: var(--border-subtle);
+        }
+
+        /* Print Media Styles */
+        @media print {
+            .sidebar, .header-actions, .search-input { display: none !important; }
+            .app-container { display: block; }
+            .main-content { padding: 0; max-width: 100%; }
+            .metric-card, .graph-card { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid #cbd5e1; }
+            body { background: #ffffff; color: #000000; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- Sticky Navigation Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="brand-pill">
+                <span class="brand-dot"></span>
+                <span>Drivn Telematics Labs</span>
+            </div>
+            <div class="sidebar-title">Metrics & Science Documentation</div>
+        </div>
+
+        <div class="sidebar-search">
+            <input type="text" id="metric-search" class="search-input" placeholder="Search formula, metric, graph..." oninput="filterMetrics(this.value)">
+        </div>
+
+        <nav class="nav-sections" id="sidebar-nav">
+            <div class="nav-category">Core Engineering</div>
+            <a href="#sec-foundations" class="nav-link active">
+                <span>0. Telemetry Foundations</span>
+                <span class="badge">Core</span>
+            </a>
+
+            <div class="nav-category">Global Dashboard</div>
+            <a href="#sec-global-kpis" class="nav-link">
+                <span>1. Global KPI Banner</span>
+                <span class="badge">4 Scopes</span>
+            </a>
+
+            <div class="nav-category">Page 1: Customer Accounts</div>
+            <a href="#sec-customers" class="nav-link">
+                <span>2. Key Customer Accounts</span>
+                <span class="badge">3 Operators</span>
+            </a>
+            <a href="#sec-customer-graphs" class="nav-link">
+                <span>↳ Customer Visualizations</span>
+                <span class="badge">5 Plots</span>
+            </a>
+
+            <div class="nav-category">Page 2: Bus Fleet</div>
+            <a href="#sec-bus-fleet" class="nav-link">
+                <span>3. Bus Fleet Utilization</span>
+                <span class="badge">20 Assets</span>
+            </a>
+            <a href="#sec-bus-graphs" class="nav-link">
+                <span>↳ Bus Top & Bottom Plots</span>
+                <span class="badge">2 Plots</span>
+            </a>
+
+            <div class="nav-category">Page 3: Truck Fleet</div>
+            <a href="#sec-truck-fleet" class="nav-link">
+                <span>4. Truck & Puller Fleet</span>
+                <span class="badge">20 Assets</span>
+            </a>
+            <a href="#sec-truck-graphs" class="nav-link">
+                <span>↳ Truck Top & Bottom Plots</span>
+                <span class="badge">2 Plots</span>
+            </a>
+
+            <div class="nav-category">Page 4: Master Register</div>
+            <a href="#sec-all-fleet" class="nav-link">
+                <span>5. All 40 Commercial Assets</span>
+                <span class="badge">Ranked Table</span>
+            </a>
+            <a href="#sec-table-columns" class="nav-link">
+                <span>↳ Master Table Schema</span>
+                <span class="badge">14 Columns</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span>Drivn Analytics v2.4</span>
+            <span id="theme-indicator">Light Mode</span>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+        <!-- Header Bar -->
+        <header class="header-bar">
+            <div class="header-left">
+                <h1>Telematics Metrics & Formula Intuition Guide</h1>
+                <p>
+                    A comprehensive, page-wise mathematical specification and operational intuition reference manual for the commercial fleet telemetry dashboard 
+                    covering 40 active heavy electric commercial vehicles (FreshBus, ZingBus, BillionE).
+                </p>
+            </div>
+            <div class="header-actions">
+                <a href="report.html" class="btn-ui primary" title="Open Live Dashboard Report">
+                    <span>📊</span> Open Report
+                </a>
+                <button class="btn-ui" onclick="toggleTheme()" id="theme-btn" title="Toggle Light/Dark Theme">
+                    <span id="theme-icon">🌙</span> Theme
+                </button>
+                <button class="btn-ui" onclick="window.print()" title="Print Reference Manual">
+                    <span>🖨️</span> PDF
+                </button>
+            </div>
+        </header>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 0: TELEMETRY STATISTICAL FOUNDATIONS -->
+        <!-- =================================================================== -->
+        <section id="sec-foundations" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">0. Telemetry & Statistical Foundations</h2>
+                <div class="section-subtitle">Core sampling rules, filtering logic & mathematical definitions</div>
+            </div>
+
+            <div class="callout tip">
+                <strong>Foundational Architectural Philosophy:</strong> 
+                Commercial fleet telemetry raw data is subject to sensor dropouts, GPS drift, depot yard holding, and mid-period asset commissioning. 
+                Rather than applying naive calendar-day arithmetic, the Drivn analytics engine enforces <em>Active-Day Normalization</em>, 
+                <em>Bessel-corrected Relative Dispersion</em>, and <em>Tenure-Adjusted Dynamic Denominators</em> to maintain absolute statistical and operational veracity.
+            </div>
+
+            <!-- Foundation Principle 1: Odometer vs Delta -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Daily Distance Measurement & Odometer Differentiation</span>
+                        <span class="metric-symbol-pill">$d_{i,t}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag green">Primary Signal</span>
+                        <span class="tag">Physical Unit: km</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, 'd_{i,t} = \\mathrm{ODO}_{i,t,\\text{close}} - \\mathrm{ODO}_{i,t,\\text{open}} = \\int_{t_0}^{t_1} v_i(\\tau) \\, d\\tau')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$d_{i,t} = \mathrm{ODO}_{i,t,\text{close}} - \mathrm{ODO}_{i,t,\text{open}} = \int_{t_0}^{t_1} v_i(\tau) \, d\tau$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Variable</th><th>Data Type</th><th>Description</th></tr></thead>
+                            <tbody>
+                                <tr><td>$d_{i,t}$</td><td>Float ($\text{km}$)</td><td>Net distance traversed by vehicle $i$ during dispatch cycle date $t$.</td></tr>
+                                <tr><td>$\mathrm{ODO}_{i,t,\text{close}}$</td><td>Float ($\text{km}$)</td><td>Closing cumulative wheel odometer reported by telematics gateway at end-of-day ($23:59:59$).</td></tr>
+                                <tr><td>$\mathrm{ODO}_{i,t,\text{open}}$</td><td>Float ($\text{km}$)</td><td>Opening odometer reported at start-of-day ($00:00:00$).</td></tr>
+                                <tr><td>$v_i(\tau)$</td><td>Float ($\text{km/h}$)</td><td>Instantaneous velocity telemetry stream sampled at $1\text{ Hz}$ to $0.1\text{ Hz}$.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Physical & Telematics Intuition</div>
+                            <div class="intel-text">
+                                High-frequency GPS tracking can suffer from "telematics drift" (accumulating spurious meters while parked under high-rises or inside depot structures). 
+                                Drivn utilizes closing and opening CAN-bus wheel odometer registers as the primary source of truth, 
+                                verifying GPS integrated velocity $\int v(\tau) d\tau$ only for tamper and disconnect detection.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Corridor Tolling & Trip Invoicing:</b> Eliminates billing disputes with corporate clients by guaranteeing true wheel-rotation mileage.</li>
+                                <li><b>Lease Contract Overage Auditing:</b> Verifies that monthly mileage ceilings (e.g. $15,000\text{ km/month}$) are tracked with zero cumulative drift error.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Foundation Principle 2: Active Day Condition -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">The Active Operating Day Filter</span>
+                        <span class="metric-symbol-pill">$\mathbf{1}(d_{i,t} > 0)$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag blue">Filtering Paradigm</span>
+                        <span class="tag">Discrete Indicator</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Definition</span>
+                            <button class="copy-btn" onclick="copyMath(this, 'A_i = \\sum_{t=1}^{T_i} \\mathbf{1}(d_{i,t} > 0), \\quad \\text{where } \\mathbf{1}(P) = \\begin{cases} 1 & \\text{if } P \\text{ is true} \\\\ 0 & \\text{if } P \\text{ is false} \\end{cases}')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$A_i = \sum_{t=1}^{T_i} \mathbf{1}(d_{i,t} > 0), \quad \text{where } \mathbf{1}(P) = \begin{cases} 1 & \text{if } P \text{ is true} \\ 0 & \text{if } P \text{ is false} \end{cases}$$
+                        </div>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Physical & Statistical Intuition</div>
+                            <div class="intel-text">
+                                Why separate active days from calendar days? If a bus operates $600\text{ km/day}$ on 20 days and sits in scheduled depot maintenance for 10 days, 
+                                its calendar-day average is $400\text{ km/day}$. 
+                                However, <b>its battery and powertrain never experienced a $400\text{ km}$ day</b>! They experienced $600\text{ km}$ duty cycles. 
+                                Conflating idle days with running days hides true shift intensity and misleads battery degradation modeling.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Duty-Cycle Energy Sizing:</b> Sizing depot DC fast chargers according to active shift consumption rather than artificially diluted calendar averages.</li>
+                                <li><b>Driver Shift Rostering:</b> Ensuring active crew schedules comply with maximum daily driving limits without distortion from off-duty days.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 1: GLOBAL HEADER & DYNAMIC KPI BANNER -->
+        <!-- =================================================================== -->
+        <section id="sec-global-kpis" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">1. Global Header & Dynamic KPI Row</h2>
+                <div class="section-subtitle">Top summary cards dynamically updating across All, Bus, Truck, and Customer tabs</div>
+            </div>
+
+            <!-- KPI 1: Fleet Distance / Day -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Total Fleet Distance per Day & Average Distance per Vehicle</span>
+                        <span class="metric-symbol-pill">$\bar{D}_{\text{scope}} \text{ \& } \bar{d}_{\text{active}}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag green">Top KPI 1</span>
+                        <span class="tag">km / day</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Exact Mathematical Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, '\\bar{D}_{\\text{scope}} = \\frac{1}{T_{\\text{window}}} \\sum_{i=1}^{M_{\\text{scope}}} D_i = \\frac{1}{30} \\sum_{i=1}^{M_{\\text{scope}}} \\sum_{t=1}^{T_i} d_{i,t}')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$\bar{D}_{\text{scope}} = \frac{1}{T_{\text{window}}} \sum_{i=1}^{M_{\text{scope}}} D_i = \frac{1}{30} \sum_{i=1}^{M_{\text{scope}}} \sum_{t=1}^{T_i} d_{i,t}$$
+                            $$\bar{d}_{\text{active, scope}} = \frac{1}{M_{\text{scope}}} \sum_{i=1}^{M_{\text{scope}}} \left( \frac{D_i}{A_i} \right) = \frac{1}{M_{\text{scope}}} \sum_{i=1}^{M_{\text{scope}}} \bar{d}_i$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Term</th><th>Definition</th><th>Dynamic Scope Values</th></tr></thead>
+                            <tbody>
+                                <tr><td>$\bar{D}_{\text{scope}}$</td><td>Macro daily distance delivered across the entire scope boundary.</td><td>All: $14,227\text{ km/d}$ • Bus: $10,490\text{ km/d}$ • Truck: $3,737\text{ km/d}$</td></tr>
+                                <tr><td>$\bar{d}_{\text{active}}$</td><td>Average daily distance driven per active commercial vehicle.</td><td>All: $396\text{ km/d/veh}$ • Bus: $548\text{ km/d/bus}$ • Truck: $243\text{ km/d/truck}$</td></tr>
+                                <tr><td>$D_i$</td><td>Total cumulative distance traversed by vehicle $i$ over the evaluation period.</td><td>All Fleet Total: $4,26,811\text{ km}$</td></tr>
+                                <tr><td>$T_{\text{window}}$</td><td>Standard observation window duration ($30.0\text{ days}$).</td><td>Fixed calendar observation denominator.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Mathematical & Operational Intuition</div>
+                            <div class="intel-text">
+                                Notice the crucial dual reporting:
+                                <br>1. <b>Macro Daily Throughput ($\bar{D}$):</b> Measures overall commercial business volume. If half the fleet is parked, macro throughput drops by 50%.
+                                <br>2. <b>Micro Vehicle Utilization ($\bar{d}_{\text{active}}$):</b> Isolates machine workload when in motion. 
+                                If only 5 buses run, but they run $700\text{ km}$ each, micro utilization is high ($700\text{ km/d}$) while macro throughput is low ($3,500\text{ km/d}$).
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Utility Power Contract Sizing:</b> Depot electricity demand tariffs (kVA demand charges) are priced on aggregate fleet distance per day.</li>
+                                <li><b>Carbon Credit Monetization:</b> Total fleet distance directly converts to verified emissions avoidance under clean mobility credit frameworks.</li>
+                                <li><b>Asset Revenue Per Kilometer (RPK):</b> Multiplying $\bar{D}$ by freight/passenger rate provides daily revenue run-rates.</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="benchmark-strip">
+                        <span class="benchmark-label">🎯 Empirical Report Benchmark</span>
+                        <span class="benchmark-val">Fleet Total: 4,26,811 km • Daily Fleet Velocity: 14,227 km/day • Bus Mean: 548 km/d • Truck Mean: 243 km/d</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI 2: Total Operating Time / Day -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Operating Time per Day & Daily Shift Intensity</span>
+                        <span class="metric-symbol-pill">$\bar{H}_{\text{scope}} \text{ \& } \bar{h}_{\text{active}}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag blue">Top KPI 2</span>
+                        <span class="tag">hours / day</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, '\\bar{H}_{\\text{scope}} = \\frac{1}{T_{\\text{window}}} \\sum_{i=1}^{M} H_i, \\quad \\bar{h}_{\\text{active}} = \\frac{1}{M} \\sum_{i=1}^{M} \\left( \\frac{H_i}{A_i} \\right)')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$\bar{H}_{\text{scope}} = \frac{1}{T_{\text{window}}} \sum_{i=1}^{M_{\text{scope}}} H_i = \frac{1}{30} \sum_{i=1}^{M_{\text{scope}}} \sum_{t=1}^{T_i} h_{i,t}$$
+                            $$\bar{h}_{\text{active, scope}} = \frac{1}{M_{\text{scope}}} \sum_{i=1}^{M_{\text{scope}}} \left( \frac{H_i}{A_i} \right)$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Variable</th><th>Definition</th><th>Dashboard Scope Values</th></tr></thead>
+                            <tbody>
+                                <tr><td>$\bar{H}_{\text{scope}}$</td><td>Total fleet-wide engine running hours per calendar day.</td><td>All: $561.0\text{ hrs/d}$ • Bus: $359.6\text{ hrs/d}$ • Truck: $201.4\text{ hrs/d}$</td></tr>
+                                <tr><td>$\bar{h}_{\text{active}}$</td><td>Average active operating hours logged per working vehicle day.</td><td>All: $16.2\text{ h/d/veh}$ • Bus: $18.9\text{ h/d/bus}$ • Truck: $13.5\text{ h/d/truck}$</td></tr>
+                                <tr><td>$H_i$</td><td>Total cumulative ignition-on running hours for asset $i$.</td><td>All Fleet Cumulative: $16,829.7\text{ hours}$</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Telematics & Mechanical Intuition</div>
+                            <div class="intel-text">
+                                Operating hours represent <em>cumulative thermal stress</em> on electric traction inverters, DC-DC converters, motor bearings, and cabin HVAC. 
+                                Notice that intercity buses operate <b>$18.9\text{ hours/day}$</b>, meaning they run double or triple driver shifts with barely 5 hours of overnight depot dwell. 
+                                In contrast, trucks average <b>$13.5\text{ hours/day}$</b> due to loading dock turnarounds and yard staging.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Hours of Service (HOS) Compliance:</b> Enforcing driver safety regulations by ensuring dual-driver rotation whenever vehicle shift exceeds 10 hours.</li>
+                                <li><b>Auxiliary Power Load Analysis:</b> Dividing total hours by distance reveals congestion and terminal dwell (e.g. FreshBus achieves $36\text{ km/h}$ average vs ZingBus $32\text{ km/h}$).</li>
+                                <li><b>Motor Bearing Lubrication Schedules:</b> Scheduling preventative bearing greasing by cumulative engine hours rather than odometer kilometers.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI 3: Active Commercial Fleet & Tenure Adjustment -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Active Fleet Count & Fleet Availability Ratio</span>
+                        <span class="metric-symbol-pill">$M_{\text{active}} \text{ \& } \mathrm{Avail}_{\text{fleet}}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag green">Top KPI 3</span>
+                        <span class="tag">Asset Headcount & %</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, 'M_{\\text{active}} = \\sum_{i=1}^{M_{\\text{total}}} \\mathbf{1}\\left(\\sum_{t} d_{i,t} > 0\\right), \\quad \\mathrm{Avail}_{\\text{fleet}} = \\left( \\frac{\\sum_{i=1}^M A_i}{\\sum_{i=1}^M T_i} \\right) \\times 100\\%')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$M_{\text{active}} = \sum_{i=1}^{M_{\text{total}}} \mathbf{1}\left(\sum_{t} d_{i,t} > 0\right) = 40 \text{ Commercial Vehicles}$$
+                            $$\mathrm{Avail}_{\text{fleet}} = \left( \frac{\sum_{i=1}^{M_{\text{scope}}} A_i}{\sum_{i=1}^{M_{\text{scope}}} T_i} \right) \times 100\%$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Category</th><th>Active Days Sum ($\sum A_i$)</th><th>Eligible Fleet Days ($\sum T_i$)</th><th>True Fleet Availability ($\%$)</th></tr></thead>
+                            <tbody>
+                                <tr><td><b>Bus Fleet (20)</b></td><td>$570.0\text{ active days}$</td><td>$600.0\text{ days } (20 \times 30\text{ d})$</td><td>$$\mathbf{95.0\%}$$</td></tr>
+                                <tr><td><b>Truck Fleet (20)</b></td><td>$440.0\text{ active days}$</td><td>$511.0\text{ days } (\text{Tenure-Adjusted})$</td><td>$$\mathbf{86.1\%}$$</td></tr>
+                                <tr><td><b>Total Commercial (40)</b></td><td>$1010.0\text{ active days}$</td><td>$1111.0\text{ days}$</td><td>$$\mathbf{90.9\%}$$</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Statistical Intuition: The Tenure-Adjustment Principle</div>
+                            <div class="intel-text">
+                                A major statistical pitfall in fleet telemetry is <em>survivor and onboarding bias</em>. 
+                                BillionE's 20 trucks were progressively onboarded throughout August: some gave their first telemetry ping on 14-Aug, 17-Aug, or 20-Aug. 
+                                If we blindly assumed all trucks had 30 eligible days, the denominator would be $600\text{ days}$, producing an artificially depressed availability of $\frac{440}{600} = 73.3\%$. 
+                                By dynamically computing each truck's calendar tenure from its first live transmission date $T_i = (T_{\text{end}} - T_{\text{first}, i}) + 1$, 
+                                the true eligible denominator is $511\text{ days}$, revealing an actual operational availability of <b>$86.1\%$</b>.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>OEM Warranty Availability SLAs:</b> Contractual guarantee validation (e.g. OEM agreement stipulating $>90\%$ vehicle availability).</li>
+                                <li><b>Ramp-Up Diagnostics:</b> Distinguishing between mechanical downtime versus assets that simply have not yet been delivered to the customer.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI 4: Peak Active Vehicle -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Peak Active Vehicle & Frontier Asset Identification</span>
+                        <span class="metric-symbol-pill">$\arg\max_i (A_i, \bar{d}_i)$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag amber">Top KPI 4</span>
+                        <span class="tag">Frontier Asset</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Optimization Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, 'i^* = \\arg\\max_{i} \\left( A_i \\times 10^6 + \\bar{d}_i \\right)')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$i^* = \arg\max_{i} \left( \text{Priority}(A_i) \cdot 10^6 + \bar{d}_i \right)$$
+                        </div>
+                        <div class="intel-text" style="margin-top: 0.5rem;">
+                            The peak asset identifies the commercial workhorse operating at the mathematical frontier of uptime ($100\%$ active availability) and maximum distance throughput.
+                        </div>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Engineering Intuition</div>
+                            <div class="intel-text">
+                                For the entire commercial fleet, <b>AP39WN7275 (FreshBus A12.5C)</b> achieved:
+                                <ul>
+                                    <li><b>Active Days:</b> $30/30\text{ days } (100.0\%)$</li>
+                                    <li><b>Daily Distance:</b> $687\text{ km/day}$</li>
+                                    <li><b>Total 30-Day Distance:</b> $20,607\text{ km}$</li>
+                                    <li><b>Operating Hours:</b> $19.9\text{ hrs/day}$</li>
+                                </ul>
+                                This demonstrates that electric commercial buses on fixed corridors can operate reliably at over $20,000\text{ km/month}$, rivaling or exceeding internal combustion diesel coaches.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Asset Sweating Efficiency Benchmark:</b> Establishes the operational ceiling that other depot managers are expected to match.</li>
+                                <li><b>Accelerated Life Testing (ALT):</b> Identifying candidate vehicles for non-destructive battery ultrasound or teardown inspection to observe extreme real-world cell degradation.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 2: KEY CUSTOMER ACCOUNTS -->
+        <!-- =================================================================== -->
+        <section id="sec-customers" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">2. Key Customer Accounts Analytics</h2>
+                <div class="section-subtitle">Account-level telemetry aggregation across FreshBus, ZingBus, and BillionE</div>
+            </div>
+
+            <!-- Customer Volatility Metric -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Daily KM Volatility Percentage & Dispersion Tiering</span>
+                        <span class="metric-symbol-pill">$\mathrm{CV}_i \text{ \& } \overline{\mathrm{CV}}_{\text{cust}}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag green">Volatility Index</span>
+                        <span class="tag">Dimensionless (%)</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Formulation</span>
+                            <button class="copy-btn" onclick="copyMath(this, 's_i = \\sqrt{\\frac{1}{A_i - 1} \\sum_{t, d_{i,t}>0} (d_{i,t} - \\bar{d}_i)^2}, \\quad \\mathrm{CV}_i = \\left( \\frac{s_i}{\\bar{d}_i} \\right) \\times 100\\%')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$s_i = \sqrt{\frac{1}{A_i - 1} \sum_{t=1, d_{i,t}>0}^{T_i} (d_{i,t} - \bar{d}_i)^2}, \quad \mathrm{CV}_i = \left( \frac{s_i}{\bar{d}_i} \right) \times 100\%$$
+                            $$\overline{\mathrm{CV}}_{\text{cust}} = \frac{1}{|V_c|} \sum_{i \in V_c} \mathrm{CV}_i, \quad \bar{s}_{\text{cust}} = \frac{1}{|V_c|} \sum_{i \in V_c} s_i$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Volatility Tier</th><th>Mathematical Threshold</th><th>Color Encoding</th><th>Operational Manifestation</th></tr></thead>
+                            <tbody>
+                                <tr><td><b>Stable</b></td><td>$$\mathrm{CV} < 25.0\%$$</td><td><span class="tag green">vol-low</span></td><td>Scheduled fixed timetable corridor. Distance identical day-in, day-out ($\sigma \approx \pm 100-140\text{ km}$).</td></tr>
+                                <tr><td><b>Moderate</b></td><td>$$25.0\% \le \mathrm{CV} < 50.0\%$$</td><td><span class="tag amber">vol-mid</span></td><td>Fixed routes with weekend surges, mountain route relief rotation, or traffic variance.</td></tr>
+                                <tr><td><b>Volatile</b></td><td>$$\mathrm{CV} \ge 50.0\%$$</td><td><span class="tag red">vol-high</span></td><td>On-demand industrial freight, loading dock queues, short local hops mixed with long hauls.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Statistical Intuition: Why Coefficient of Variation (CV)?</div>
+                            <div class="intel-text">
+                                If Bus A averages $600\text{ km/day}$ with a standard deviation of $\pm 120\text{ km}$, and Truck B averages $200\text{ km/day}$ with $\pm 120\text{ km}$, 
+                                <b>they have identical raw standard deviations ($s = 120\text{ km}$), but radically different dispatch stability!</b>
+                                <br>• For Bus A: $\text{CV} = \frac{120}{600} = 20\%$ (Highly predictable intercity schedule).
+                                <br>• For Truck B: $\text{CV} = \frac{120}{200} = 60\%$ (Completely erratic, tripling or dropping to zero).
+                                <br>The Coefficient of Variation normalizes scale, providing an unbiased metric of route stability.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Depot Charging Slot Reservation:</b> Stable fleets ($\text{CV} < 25\%$) enable rigid automated charging schedules. High volatility fleets require dynamic opportunity chargers.</li>
+                                <li><b>Driver Compensation Planning:</b> Eliminates salary disparity caused by fluctuating trip assignments by identifying routes with high coefficient of variation.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Electric Battery Mileage & SoC Consumption -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Battery Economy (Mileage) & Daily SoC Turnover</span>
+                        <span class="metric-symbol-pill">$M_{\text{SoC}} \text{ \& } \mathrm{SoC}_{\text{daily}}$</span>
+                    </div>
+                    <div class="metric-tags">
+                        <span class="tag blue">EV Telematics</span>
+                        <span class="tag">km/SoC & %/day</span>
+                    </div>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label">
+                            <span>Mathematical Formulation & Sensor Filter</span>
+                            <button class="copy-btn" onclick="copyMath(this, 'M_{\\text{SoC}, i} = \\frac{\\Delta \\mathrm{Distance}_i}{\\Delta \\mathrm{SoC}_i} \\quad [\\text{km per 1\\% SoC}], \\quad \\mathrm{SoC}_{\\text{daily}, i} = \\left( \\frac{\\bar{d}_i}{M_{\\text{SoC}, i}} \\right) \\times 100\\%')">Copy LaTeX</button>
+                        </div>
+                        <div class="formula-content">
+                            $$M_{\text{SoC}, i} = \frac{\Delta \mathrm{Distance}_i}{\Delta \mathrm{SoC}_i} \quad [\text{km per 1\% SoC}]$$
+                            $$\text{Sensor Rejection Filter: } M_{\text{SoC}, i} = \text{NaN} \iff M_{\text{SoC}, i} \ge 10.0 \text{ or } M_{\text{SoC}, i} \le 0$$
+                            $$\mathrm{SoC}_{\text{daily}, i} = \left( \frac{\bar{d}_i}{M_{\text{SoC}, i}} \right) \times 100\% \quad [\% \text{ SoC consumed per day}]$$
+                        </div>
+                        <table class="var-table">
+                            <thead><tr><th>Customer Account</th><th>Vehicle Type</th><th>Avg Mileage ($M_{\text{SoC}}$)</th><th>Daily SoC Turnover</th><th>Operational Meaning</th></tr></thead>
+                            <tbody>
+                                <tr><td><b>FreshBus</b></td><td>Azad A12.5C (Bus)</td><td>$$\mathbf{5.7\text{ km/SoC}}$$</td><td>$$100\% - 124\%\text{ SoC/d}$$</td><td>Over-the-road efficiency. Runs $570\text{ km}$ nominal range per $100\%$ SoC. Operates multi-cycle with mid-day top-up.</td></tr>
+                                <tr><td><b>ZingBus</b></td><td>JBM / Azad (Bus)</td><td>$$\mathbf{4.2\text{ km/SoC}}$$</td><td>$$93\% - 142\%\text{ SoC/d}$$</td><td>Lower efficiency due to mountainous elevation gain on Delhi-Dehradun route and heavier HVAC loads.</td></tr>
+                                <tr><td><b>BillionE</b></td><td>TATA E55 (55T Truck)</td><td>$$\text{Telemetry Pending}$$</td><td>$$\text{Evaluating}$$</td><td>Heavy tractor haulage ($55\text{ Tonnes}$ gross train weight). CAN-bus battery integration in progress.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Electrochemical & Thermodynamic Intuition</div>
+                            <div class="intel-text">
+                                Notice that FreshBus vehicles routinely register <b>$110\%$ to $124\%$ Daily SoC</b>. 
+                                A battery cannot magically output $124\%$ on a single charge! 
+                                This mathematical threshold proves that the asset undergoes <b>multi-charge cycling</b> within a $24\text{ hour}$ window: 
+                                leaving Guntur at $100\%$ SoC, opportunity fast-charging at Hyderabad depot to replenish $+50\%$, and completing the return journey.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Commercial Fleet Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Battery Health & State of Health (SOH) Tracking:</b> If a bus's mileage drops from $5.7\text{ km/SoC}$ to $4.5\text{ km/SoC}$ on identical flat terrain, it flags cell impedance growth or brake dragging.</li>
+                                <li><b>Regenerative Braking Optimization:</b> Drivers with higher $\text{km/SoC}$ are rewarded for maximizing regen braking during deceleration phases.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 2b: CUSTOMER VISUALIZATIONS -->
+        <!-- =================================================================== -->
+        <section id="sec-customer-graphs" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">↳ Customer Comparative Visualizations</h2>
+                <div class="section-subtitle">Mathematical specs & interpretation for the 5 interactive Plotly charts</div>
+            </div>
+
+            <!-- Graph 1: Mileage Intensity -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📊 Graph 1: Customer Mileage Intensity (Avg km/day per Active Vehicle)</span>
+                        <span class="metric-symbol-pill">#chart-cust-daily</span>
+                    </div>
+                    <span class="tag green">Horizontal Bar Chart</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="graph-specs">
+                        <div class="spec-item"><div class="spec-label">Chart Type</div><div class="spec-val">Horizontal Bar (Plotly)</div></div>
+                        <div class="spec-item"><div class="spec-label">X-Axis Variable</div><div class="spec-val">$\bar{d}_{\text{cust}}$ ($\text{km/day/veh}$)</div></div>
+                        <div class="spec-item"><div class="spec-label">Y-Axis Categories</div><div class="spec-val">FreshBus, ZingBus, BillionE</div></div>
+                        <div class="spec-item"><div class="spec-label">Values Plotted</div><div class="spec-val">FreshBus: 665.1 • ZingBus: 431.1 • BillionE: 243.2</div></div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Scientific Purpose:</b> Normalizes fleet size differences ($10\text{ buses}$ vs $20\text{ trucks}$) to directly benchmark asset sweating intensity across commercial accounts. 
+                        It reveals that an average FreshBus vehicle runs <b>$2.7\times$</b> the daily mileage of an average BillionE truck due to highway express schedules vs industrial freight cycles.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph 2: Fleet Distance Share -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>🍩 Graph 2: Total Fleet Distance Share (Donut Chart)</span>
+                        <span class="metric-symbol-pill">#chart-cust-share</span>
+                    </div>
+                    <span class="tag blue">Donut Proportional Plot</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="graph-specs">
+                        <div class="spec-item"><div class="spec-label">Formula</div><div class="spec-val">$\text{Share}_c = \frac{D_c}{\sum D_j} \times 100\%$</div></div>
+                        <div class="spec-item"><div class="spec-label">Inner Hole Ratio</div><div class="spec-val">0.62 Cutout with Center KPI Annotation</div></div>
+                        <div class="spec-item"><div class="spec-label">Center Total</div><div class="spec-val">4,26,811 Total km (Indian Numbering)</div></div>
+                        <div class="spec-item"><div class="spec-label">Proportions</div><div class="spec-val">FreshBus: 46.7% • ZingBus: 27.0% • BillionE: 26.3%</div></div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Intuition:</b> FreshBus comprises only $25\%$ of active vehicle count ($10/40$), yet generates nearly half ($46.7\%$) of all commercial kilometers driven across the company. 
+                        This illustrates that fleet size is a misleading indicator of operational exposure compared to energy and distance share.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph 3: Box and Whisker Plot -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📦 Graph 3: Daily Distance Distribution (Box & Whisker Plot)</span>
+                        <span class="metric-symbol-pill">#chart-cust-boxplot</span>
+                    </div>
+                    <span class="tag green">Non-Parametric Spread</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Five-Number Summary Mathematical Formulation</span></div>
+                        <div class="formula-content">
+                            $$\text{IQR} = Q_3 - Q_1, \quad \text{Lower Whisker} = \max(\min(X), Q_1 - 1.5 \cdot \text{IQR}), \quad \text{Upper Whisker} = \min(\max(X), Q_3 + 1.5 \cdot \text{IQR})$$
+                        </div>
+                    </div>
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Statistical Distribution Profile</div>
+                            <div class="intel-text">
+                                • <b>FreshBus (Ultra-Narrow IQR):</b> Extreme clustering between $600\text{ km}$ and $720\text{ km}$ with minimal whisker spread. Proves rigid intercity dispatch.
+                                <br>• <b>ZingBus (Moderate Spread):</b> Median around $450\text{ km}$, with lower outliers corresponding to short tourist route rotations.
+                                <br>• <b>BillionE (Wide Multi-Modal Spread):</b> Massive IQR spanning from $100\text{ km}$ to $400\text{ km}$, with whiskers extending beyond $500\text{ km}$. Demonstrates dynamic haulage runs.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Operational Management Action</div>
+                            <ul class="intel-list">
+                                <li><b>Outlier Elimination:</b> Points below the lower whisker identify aborted trips due to charging failure, mechanical breakdown, or depot delays.</li>
+                                <li><b>Buffer Planning:</b> Narrow IQR permits just-in-time charging reservations, whereas wide IQR requires flexible buffer capacity.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph 4: Seasonality Decomposition -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📈 Graph 4: Day-of-Week Seasonality Decomposition (Mean ± Volatility)</span>
+                        <span class="metric-symbol-pill">#chart-cust-seasonality</span>
+                    </div>
+                    <span class="tag amber">Error-Bar Time Series</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Weekday Aggregation & Error Bar Formulation</span></div>
+                        <div class="formula-content">
+                            $$\bar{d}_{c,w} = \frac{1}{N_{c,w}} \sum_{t \in w} d_{c,t}, \quad \sigma_{c,w} = \sqrt{\frac{1}{N_{c,w}-1} \sum_{t \in w} (d_{c,t} - \bar{d}_{c,w})^2}, \quad \text{Plot } \bar{d}_{c,w} \pm \sigma_{c,w}$$
+                        </div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Domain Insight:</b> Decomposes distance trends across Monday through Sunday. 
+                        Passenger operators (ZingBus) exhibit clear weekend demand expansion (Friday evening through Sunday), 
+                        whereas commercial industrial logistics (BillionE) drop on Sundays as loading docks and manufacturing plants scale down shifts.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graph 5: Active Vehicle Timeline -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📅 Graph 5: Daily Active Commercial Vehicle Percentage Across Timeline</span>
+                        <span class="metric-symbol-pill">#chart-cust-active-timeline</span>
+                    </div>
+                    <span class="tag green">Dynamic Eligible Denominator</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Tenure-Adjusted Dynamic Denominator Formulation</span></div>
+                        <div class="formula-content">
+                            $$\mathrm{ActivePct}_c(t) = \left( \frac{\sum_{i \in \mathrm{Fleet}_c} \mathbf{1}(d_{i,t} > 0)}{\sum_{i \in \mathrm{Fleet}_c} \mathbf{1}(\mathrm{FirstTelemetryDate}_i \le t)} \right) \times 100\%$$
+                        </div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Why Static Denominators Fail:</b> On 09-August, BillionE had only 5 trucks delivered. 3 ran on that day. 
+                        Under a static 20-truck denominator, uptime would appear as a catastrophic $15.0\%$. 
+                        Under the dynamic tenure-adjusted formula, it is accurately recognized as $\frac{3}{5} = \mathbf{60.0\%}$ with tooltip annotating `(5/20 onboarded)`.
+                    </div>
+            <!-- Graph 6: 200 KM Distance Compartments Cross-Tab Matrix -->
+            <div class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📊 Graph 6: Daily Distance Compartments Cross-Tabulation Matrix</span>
+                        <span class="metric-symbol-pill">#crosstab-matrix-wrapper</span>
+                    </div>
+                    <span class="tag green">Interactive 2D Cross-Tab Matrix</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Cross-Tabulation Cell Allocation & Fleet Probability Formulation</span></div>
+                        <div class="formula-content">
+                            $$P(B_k \mid t) = \left( \frac{\sum_{i=1}^{M(t)} \mathbf{1}\left(d_{i,t} \in \Delta_k\right)}{M_{\text{active}}(t)} \right) \times 100\%, \quad \Delta_k \in \left\{ 0\text{ km}, 1\text{–}200\text{ km}, 201\text{–}400\text{ km}, 401\text{–}600\text{ km}, 601\text{–}800\text{ km}, 800+\text{ km} \right\}$$
+                        </div>
+                    </div>
+                    <div class="graph-specs">
+                        <div class="spec-item"><div class="spec-label">Visual Format</div><div class="spec-val">2D Cross-Tabulation Matrix & Heatmap Grid</div></div>
+                        <div class="spec-item"><div class="spec-label">Y-Axis (Rows)</div><div class="spec-val">Distance Ranges (800+ km down to 0 km) + 30-Day Share</div></div>
+                        <div class="spec-item"><div class="spec-label">X-Axis (Columns)</div><div class="spec-val">30 Observation Dates (10 Aug to 08 Sep)</div></div>
+                        <div class="spec-item"><div class="spec-label">Box Values</div><div class="spec-val">Active Fleet % Allocation per Distance Range</div></div>
+                        <div class="spec-item"><div class="spec-label">Control Filter</div><div class="spec-val">Customer Filter Only (All, FreshBus, ZingBus, BillionE)</div></div>
+                        <div class="spec-item"><div class="spec-label">Roster Drilldown</div><div class="spec-val">Click any box to inspect exact vehicle plates, km & hrs</div></div>
+                    </div>
+                    <div class="metric-grid-2col">
+                        <div class="intel-block">
+                            <div class="intel-title intuition">🧠 Physical & Battery Duty Intuition</div>
+                            <div class="intel-text">
+                                Commercial electric vehicle range is bounded by battery pack energy density ($200\text{–}300\text{ kWh}$ packs deliver approximately $200\text{–}300\text{ km}$ on a single charge). 
+                                Representing daily fleet dispersion as a 2D cross-tab matrix allows instant visual identification of operational patterns without chart clutter:
+                                <br>• <b>$0\text{ km}$</b>: Stationary / unassigned day (preventing zero-charge state of charge degradation).
+                                <br>• <b>$1\text{–}200\text{ km}$</b>: Single-shift operation; overnight depot AC/DC charge only.
+                                <br>• <b>$201\text{–}400\text{ km}$</b>: Standard regional return run; requires 1 intermediate top-up charge.
+                                <br>• <b>$401\text{–}600\text{ km}$</b>: Extended line-haul corridor; requires 2 intermediate opportunity fast charges.
+                                <br>• <b>$601\text{–}800\text{ km}$ & $800+\text{ km}$</b>: Continuous double-driver corridor operations with rapid multi-charge turnaround.
+                            </div>
+                        </div>
+                        <div class="intel-block">
+                            <div class="intel-title use-case">💼 Fleet Dispatch & Infrastructure Use Cases</div>
+                            <ul class="intel-list">
+                                <li><b>Spotting Asset Overuse vs. Underuse:</b> Clicking any cell immediately lists the exact buses in that kilometer band for that day. Persistent placement of the same vehicle in the top rows flags thermal stress and lack of maintenance rotation.</li>
+                                <li><b>Dispatch Rebalancing:</b> If specific vehicles continuously appear in $\le 200\text{ km}$ boxes while others run in $601\text{–}800\text{ km}$ boxes, dispatchers rotate vehicle route assignments to equalize battery cycle aging and tire wear.</li>
+                                <li><b>En-Route Fast Charging Infrastructure Sizing:</b> Correlating high-percentage days in $>600\text{ km}$ ranges across the fleet quantifies peak daily demand for high-power DC fast charging hubs.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 3: BUS FLEET UTILIZATION -->
+        <!-- =================================================================== -->
+        <section id="sec-bus-fleet" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">3. Bus Fleet Utilization & Mileage Analytics</h2>
+                <div class="section-subtitle">20 Intercity Commercial Buses (FreshBus: 10, ZingBus: 10)</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Bus Category Aggregations & Availability Benchmark</span>
+                        <span class="metric-symbol-pill">20 Active Commercial Buses</span>
+                    </div>
+                    <span class="tag green">95.0% Availability</span>
+                </div>
+                <div class="metric-body">
+                    <div class="intel-text">
+                        The bus category represents high-speed, long-distance intercity public transport corridors. 
+                        <b>Overall Performance Profile:</b>
+                        <ul>
+                            <li><b>Total Distance:</b> $3,14,700\text{ km}$ ($73.7\%$ of all commercial distance).</li>
+                            <li><b>Total Operating Hours:</b> $10,788.7\text{ hours}$.</li>
+                            <li><b>Category Average Daily Run:</b> $548\text{ km/day per bus}$.</li>
+                            <li><b>Category Average Operating Time:</b> $18.9\text{ hrs/day per bus}$.</li>
+                            <li><b>Fleet Active Availability:</b> $\frac{570\text{ active days}}{600\text{ total days}} \times 100\% = \mathbf{95.0\%}$.</li>
+                            <li><b>Daily KM Volatility:</b> $30.9\%$ average relative volatility ($\pm 153\text{ km/d}$).</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bus Graphs: Top 5 & Bottom 5 -->
+            <div id="sec-bus-graphs" class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📊 Graphs 6 & 7: Top 5 and Bottom 5 Buses Horizontal Bar Plots</span>
+                        <span class="metric-symbol-pill">#chart-bus-top & #chart-bus-bottom</span>
+                    </div>
+                    <span class="tag blue">Plotly with Category Benchmark</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="intel-text">
+                        <b>Design & Mathematical Logic:</b>
+                        <br>1. <b>Sorting Hierarchy:</b> Assets are sorted primarily by Active Days ($A_i$), with ties broken by Average Distance ($\bar{d}_i$).
+                        <br>2. <b>Reversed Y-Axis:</b> By configuring <code>yaxis: { autorange: 'reversed' }</code>, Rank 1 appears at the very top of the chart with the longest bar, cascading down to Rank 5.
+                        <br>3. <b>Category Mean Benchmark Line:</b> A dashed vertical threshold line is plotted at $x = 548\text{ km/day}$ with a pill annotation, immediately showing whether an asset outperforms or underperforms the fleet norm.
+                        <br>4. <b>Color Encoding:</b> Top 5 bars use Drivn brand green (`--color-top`), while Bottom 5 use alert red (`--color-bottom`) to highlight underperforming assets.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 4: TRUCK FLEET UTILIZATION -->
+        <!-- =================================================================== -->
+        <section id="sec-truck-fleet" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">4. Truck & Heavy Puller Fleet Analytics</h2>
+                <div class="section-subtitle">20 Commercial TATA E55 55T Electric Tractor Trucks (BillionE)</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">Heavy Commercial Truck Operating Profile</span>
+                        <span class="metric-symbol-pill">20 Active Commercial Trucks</span>
+                    </div>
+                    <span class="tag amber">86.1% Availability</span>
+                </div>
+                <div class="metric-body">
+                    <div class="intel-text">
+                        The truck fleet operates on the <b>Rajasthan - Surat</b> freight line-haul corridor, carrying heavy industrial raw materials.
+                        <ul>
+                            <li><b>Total Distance:</b> $1,12,111\text{ km}$.</li>
+                            <li><b>Category Average Daily Run:</b> $243\text{ km/day per truck}$.</li>
+                            <li><b>Daily Operating Hours:</b> $13.5\text{ hrs/day per truck}$.</li>
+                            <li><b>Fleet Active Availability:</b> $\frac{440\text{ active days}}{511\text{ total days}} \times 100\% = \mathbf{86.1\%}$.</li>
+                            <li><b>Daily KM Volatility:</b> High volatility tier ($57.2\%$ average CV • $\pm 134\text{ km/d}$).</li>
+                        </ul>
+                    </div>
+
+                    <div class="callout alert">
+                        <strong>Dormant Vehicle Diagnostic:</strong> 
+                        Vehicle <code>MH02GS4334</code> logged only <b>2 active days out of 29</b> ($6.9\%$ availability, $0\text{ km}$ moved, $15.9\text{ engine hours}$). 
+                        This indicates an asset stranded in yard holding, commissioning diagnostic loops, or waiting for charging bay electrical approvals.
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec-truck-graphs" class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>🚚 Graphs 8 & 9: Top 5 and Bottom 5 Commercial Trucks</span>
+                        <span class="metric-symbol-pill">#chart-truck-top & #chart-truck-bottom</span>
+                    </div>
+                    <span class="tag green">Benchmark = 243 km/d</span>
+                </div>
+                <div class="graph-card-body">
+                    <div class="intel-text">
+                        Demonstrates the extreme operational bifurcation in freight fleets:
+                        <br>• <b>Top 5 Trucks:</b> Exemplified by <code>MH02GS4333</code> ($233\text{ km/d}$, $27/30\text{ d}$, $90\%$ uptime) operating consistent hub-to-hub line-hauls.
+                        <br>• <b>Bottom 5 Trucks:</b> Hampered by delivery ramp-up delays with active rates below $50\%$ (ranks 1 to 3 highlighted with red alert badges).
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- SECTION 5: ALL 40 COMMERCIAL VEHICLES MASTER REGISTRY -->
+        <!-- =================================================================== -->
+        <section id="sec-all-fleet" class="doc-section">
+            <div class="section-header">
+                <h2 class="section-title">5. All 40 Commercial Vehicles Master Registry</h2>
+                <div class="section-subtitle">Ascending availability sort, alert thresholds & table schema specification</div>
+            </div>
+
+            <!-- 80% Availability Alert Logic -->
+            <div class="metric-card alert-tier">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">The 80% Active Availability Alert Condition</span>
+                        <span class="metric-symbol-pill">$\mathrm{Avail}_i < 80\%$</span>
+                    </div>
+                    <span class="tag red">Threshold Warning</span>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Alert Predicate Formulation</span></div>
+                        <div class="formula-content">
+                            $$\mathrm{IsBelow80}(i) = \begin{cases} \mathbf{True} \implies \text{Highlight Red Alert Row} & \text{if } \frac{A_i}{T_i} < 0.80 \\ \mathbf{False} \implies \text{Normal Operational Row} & \text{if } \frac{A_i}{T_i} \ge 0.80 \end{cases}$$
+                        </div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Scientific Rationalization:</b> 
+                        An asset operating on fewer than $80\%$ of eligible calendar days ($<24\text{ days out of } 30$) fails to cover its fixed capital lease depreciation and financing costs. 
+                        Exactly <b>6 out of 40 vehicles ($15.0\%$)</b> operate below this threshold (3 buses: <code>DL1PD8509</code>, <code>DL1PD8523</code>, <code>HR55AY9237</code>; and 3 trucks: <code>MH02GS4334</code>, <code>MH02GS4233</code>, <code>MH02GS4329</code>). 
+                        By sorting the master table in <b>Ascending Order ($1 \to 40$)</b>, these 6 vulnerable assets are presented right at the very top of the table for immediate operational triage.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Complete Table Schema Specification -->
+            <div id="sec-table-columns" class="graph-card">
+                <div class="graph-card-header">
+                    <div class="graph-card-title">
+                        <span>📋 Master Table Column Dictionary (All 14 Attributes)</span>
+                    </div>
+                    <span class="tag blue">Complete Schema</span>
+                </div>
+                <div class="graph-card-body">
+                    <table class="var-table" style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th style="width: 5%;">#</th>
+                                <th style="width: 20%;">Column Name</th>
+                                <th style="width: 25%;">Mathematical Definition</th>
+                                <th style="width: 50%;">Engineering & Operational Interpretation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1</td>
+                                <td><b>Rank (#)</b></td>
+                                <td>$$\text{Sort by } (\mathrm{Avail}_i \uparrow, \bar{d}_i \uparrow)$$</td>
+                                <td>Ascending rank from 1 to 40. Puts the lowest availability vehicles at the top so managers see problem assets immediately.</td>
+                            </tr>
+                            <tr>
+                                <td>2</td>
+                                <td><b>License Plate</b></td>
+                                <td>$$\text{String identifier}$$</td>
+                                <td>Unique vehicle registration number registered with transport authorities.</td>
+                            </tr>
+                            <tr>
+                                <td>3</td>
+                                <td><b>Type Pill</b></td>
+                                <td>$$\{\text{Bus}, \text{Truck}\}$$</td>
+                                <td>Commercial category pill with distinct color scheme (blue for bus, amber for truck).</td>
+                            </tr>
+                            <tr>
+                                <td>4</td>
+                                <td><b>Customer</b></td>
+                                <td>$$\{\text{FreshBus}, \text{ZingBus}, \text{BillionE}\}$$</td>
+                                <td>Corporate operating client managing the route network.</td>
+                            </tr>
+                            <tr>
+                                <td>5</td>
+                                <td><b>Model</b></td>
+                                <td>$$\text{OEM Model Descriptor}$$</td>
+                                <td>E.g. Azad A12.5C, JBM ECOLIFE E12 GALAXY V1, TATA E55.</td>
+                            </tr>
+                            <tr>
+                                <td>6</td>
+                                <td><b>Active Days (% Avail)</b></td>
+                                <td>$$A_i / T_i \text{ and } (A_i / T_i) \times 100\%$$</td>
+                                <td>Fraction of active days over eligible tenure days. Centered in table. Red alert if $<80\%$.</td>
+                            </tr>
+                            <tr>
+                                <td>7</td>
+                                <td><b>Avg km/day</b></td>
+                                <td>$$\bar{d}_i = D_i / A_i$$</td>
+                                <td>Average distance driven per <i>active operating day</i>. Rounded to nearest integer.</td>
+                            </tr>
+                            <tr>
+                                <td>8</td>
+                                <td><b>Daily Hours</b></td>
+                                <td>$$\bar{h}_i = H_i / A_i$$</td>
+                                <td>Ignition-on running hours per <i>active day</i>. Measures shift duration. Formatted to 1 decimal place.</td>
+                            </tr>
+                            <tr>
+                                <td>9</td>
+                                <td><b>Total Distance</b></td>
+                                <td>$$D_i = \sum d_{i,t}$$</td>
+                                <td>Cumulative 30-day mileage. Indian numbering system formatted (e.g. $1,93,126\text{ km}$).</td>
+                            </tr>
+                            <tr>
+                                <td>10</td>
+                                <td><b>Total Hours</b></td>
+                                <td>$$H_i = \sum h_{i,t}$$</td>
+                                <td>Cumulative engine operating hours across evaluation period.</td>
+                            </tr>
+                            <tr>
+                                <td>11</td>
+                                <td><b>Current Odometer</b></td>
+                                <td>$$\mathrm{ODO}_{\text{final}}$$</td>
+                                <td>Lifetime cumulative vehicle odometer from the most recent telemetry ping. Indicates lifetime asset wear.</td>
+                            </tr>
+                            <tr>
+                                <td>12</td>
+                                <td><b>Mileage (km/SoC)</b></td>
+                                <td>$$\Delta \text{Distance} / \Delta \text{SoC}$$</td>
+                                <td>Energy economy in kilometers per $1\%$ battery SoC. Null if sensor glitch ($\ge 10.0$).</td>
+                            </tr>
+                            <tr>
+                                <td>13</td>
+                                <td><b>Est. Daily SoC</b></td>
+                                <td>$$(\bar{d}_i / M_{\text{SoC}, i}) \times 100\%$$</td>
+                                <td>Estimated daily percentage of battery capacity consumed. Values $>100\%$ demonstrate multi-cycle opportunity charging.</td>
+                            </tr>
+                            <tr>
+                                <td>14</td>
+                                <td><b>Daily KM Volatility (%)</b></td>
+                                <td>$$\text{CV}_i = (s_i / \bar{d}_i) \times 100\%$$</td>
+                                <td>Coefficient of variation formatted as whole percentage with colored badge (`vol-low`, `vol-mid`, `vol-high`).</td>
+                            </tr>
+                            <tr>
+                                <td>15</td>
+                                <td><b>Volatility Chart (Sparkline)</b></td>
+                                <td>$$\text{SVG Polygon } \{(X_t, Y_t)\}_{t=1}^{30}$$</td>
+                                <td>Micro-visualization of 30-day daily distance trajectory showing dispatch stability or irregularity at a glance.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Sparkline Algorithm -->
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <div class="metric-title-wrap">
+                        <span class="metric-name">SVG Sparkline Coordinate Projection Algorithm</span>
+                        <span class="metric-symbol-pill">96px &times; 22px SVG</span>
+                    </div>
+                    <span class="tag green">UI Component</span>
+                </div>
+                <div class="metric-body">
+                    <div class="formula-box">
+                        <div class="formula-label"><span>Coordinate Normalization Formulation</span></div>
+                        <div class="formula-content">
+                            $$X_t = 2.0 + \left( \frac{t - 1}{N - 1} \right) \times (96.0 - 4.0), \quad Y_t = 19.0 - \left( \frac{d_{i,t}}{\max_k(d_{i,k}) + 1.0} \right) \times (19.0 - 3.0)$$
+                        </div>
+                    </div>
+                    <div class="intel-text">
+                        <b>Visual Geometry:</b> 
+                        Each sparkline represents all 30 consecutive calendar days. 
+                        Zero-distance idle days drop to the baseline ($Y = 19.0\text{px}$), 
+                        while active operating runs peak toward $Y = 3.0\text{px}$. 
+                        A linear gradient area fill provides instant visual recognition: a flat horizontal roof denotes stable fixed dispatch (FreshBus), 
+                        while spiky jagged cliffs denote sporadic freight operation (BillionE).
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer style="margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle); font-size: 0.8rem; color: var(--text-muted); text-align: center;">
+            Drivn Telematics Intelligence • Advanced Commercial Fleet Mathematics & Empirical Telemetry Reference
+        </footer>
+    </main>
+</div>
+
+<script>
+    // Theme Management Synchronized with localStorage 'drivn-theme'
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        try {
+            localStorage.setItem('drivn-theme', next);
+            localStorage.setItem('theme', next);
+        } catch(e) {}
+        updateThemeUI(next);
+    }
+
+    function updateThemeUI(theme) {
+        const icon = document.getElementById('theme-icon');
+        const text = document.getElementById('theme-indicator');
+        if (icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+        if (text) text.textContent = theme === 'dark' ? 'Dark Mode' : 'Light Mode';
+    }
+
+    // Interactive Search Filter for Metrics & Formulations
+    function filterMetrics(query) {
+        query = query.toLowerCase().trim();
+        const cards = document.querySelectorAll('.metric-card, .graph-card');
+        cards.forEach(card => {
+            const text = card.textContent.toLowerCase();
+            if (query === '' || text.includes(query)) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+
+    // Clipboard LaTeX Copy Function
+    function copyMath(btn, latex) {
+        navigator.clipboard.writeText(latex).then(() => {
+            const orig = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            btn.style.color = 'var(--accent-brand)';
+            setTimeout(() => {
+                btn.textContent = orig;
+                btn.style.color = '';
+            }, 1800);
+        });
+    }
+
+    // Safe KaTeX Rendering Function
+    function renderMathSafely() {
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false},
+                    {left: '\\[', right: '\\]', display: true}
+                ],
+                ignoredTags: ["script", "noscript", "style", "textarea", "pre"],
+                throwOnError: false
+            });
+        }
+    }
+
+    // Lifecycle triggers for rendering
+    document.addEventListener('DOMContentLoaded', () => {
+        const theme = document.documentElement.getAttribute('data-theme') || 'light';
+        updateThemeUI(theme);
+
+        renderMathSafely();
+        setTimeout(renderMathSafely, 150);
+        setTimeout(renderMathSafely, 600);
+
+        const sections = document.querySelectorAll('.doc-section');
+        const navLinks = document.querySelectorAll('.nav-link');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(sec => {
+                const secTop = sec.offsetTop - 120;
+                if (pageYOffset >= secTop) {
+                    current = sec.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === `#${current}`) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    });
+
+    window.addEventListener('load', () => {
+        renderMathSafely();
+        setTimeout(renderMathSafely, 300);
+    });
+</script>
+</body>
+</html>

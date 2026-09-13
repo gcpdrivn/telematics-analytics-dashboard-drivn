@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 .env
 
+# Local-only operational runbook -- names real service accounts, project
+# IDs, and billing details that shouldn't be in this public repo.
+OPERATIONS.md
+
 # Raw source reports are dropped locally, not committed.
 data/raw/**/*.xls*
 !data/raw/**/.gitkeep

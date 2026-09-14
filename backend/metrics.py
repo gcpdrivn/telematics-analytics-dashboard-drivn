@@ -126,6 +126,32 @@ def clean_and_join(
     customer_oem = dim_customer.set_index("customer_name")["oem"]
     df_clean["Customer_OEM"] = df_clean["Customer"].map(customer_oem).fillna("Standard")
 
+    # Ground truth for "was this vehicle actually onboarded yet" -- NaT
+    # (dim_vehicle.device_installation_date not filled in for that plate)
+    # means callers must fall back to approximating from telemetry instead.
+    vehicle_install_date = dim_vehicle.set_index("base_license_plate")["device_installation_date"]
+    df_clean["Device Installation Date"] = pd.to_datetime(
+        df_clean["Base License Plate"].map(vehicle_install_date)
+    )
+
+    # dim_vehicle.vehicle_type/vehicle_model are the human-reviewed vehicle
+    # master data (from dim_vehicle_master.xlsx) -- prefer them over the raw
+    # per-day telemetry fields, which are occasionally wrong (e.g. a raw
+    # Vehicle Model of literally "Truck" instead of a real model name).
+    # Overriding here, before any per-plate aggregation, means every
+    # existing consumer (clubbed_vehicle_type's mode, the first-non-null
+    # model lookups in build_active_stats/build_vehicle_uptime) picks up the
+    # curated value automatically. Falls back to the telemetry value for a
+    # plate not yet in dim_vehicle with these filled in.
+    vehicle_type_master = dim_vehicle.set_index("base_license_plate")["vehicle_type"]
+    vehicle_model_master = dim_vehicle.set_index("base_license_plate")["vehicle_model"]
+    df_clean["Vehicle Type"] = df_clean["Base License Plate"].map(vehicle_type_master).fillna(
+        df_clean["Vehicle Type"]
+    )
+    df_clean["Vehicle Model"] = df_clean["Base License Plate"].map(vehicle_model_master).fillna(
+        df_clean["Vehicle Model"]
+    )
+
     # Only the 3 commercial accounts are in scope -- anything unassigned
     # (or a pilot/test account not in dim_vehicle) is dropped here.
     df_clean = df_clean[df_clean["Customer"].isin(CUSTOMERS)].copy()
@@ -198,6 +224,34 @@ def get_final_odometer(sub_df: pd.DataFrame) -> float:
     return np.nan
 
 
+def resolve_total_days(
+    row: pd.Series, window_start: pd.Timestamp, end_date: pd.Timestamp, observation_days: float
+) -> float:
+    """Days this vehicle could plausibly have racked up an active day, for
+    the active_rate_pct denominator. Prefers the real
+    dim_vehicle.device_installation_date (clipped to the window in scope) --
+    it's ground truth for when a vehicle actually joined the fleet, unlike
+    the two approximations this replaces for a plate: "assume active for the
+    Bus fleet's whole window" and "count from its first reported date".
+
+    Both approximations remain as fallbacks for a plate whose install date
+    hasn't been filled in yet (dim_vehicle_master.xlsx is filled in
+    progressively, not all-or-nothing).
+
+    install_ts is clipped to no later than first_date (this vehicle's actual
+    first report) so a bad/future install-date entry can never exclude days
+    it demonstrably already had telemetry for -- every row reaching this
+    function is a vehicle with total_distance > 0, so first_date <= end_date
+    always holds and total_days can never come out <= 0."""
+    install = row["install_date"]
+    if pd.notna(install):
+        effective_start = max(window_start, min(pd.Timestamp(install), row["first_date"]))
+        return float((end_date - effective_start).days + 1)
+    if row["vehicle_type"] == "Bus":
+        return observation_days
+    return float((end_date - row["first_date"]).days + 1)
+
+
 def build_active_stats(
     df_clean: pd.DataFrame, mileage_valid: dict[str, float], observation_days: float
 ) -> pd.DataFrame:
@@ -205,14 +259,14 @@ def build_active_stats(
     other builder below works from.
 
     observation_days is the size of the (possibly date-filtered) window in
-    scope -- Bus tenure uses it directly rather than a literal 30, since
-    FreshBus/ZingBus are a fixed roster active for the whole window, not
-    just from their own first reported date (unlike trucks, which legitimately
-    onboard progressively). A hardcoded 30 was fine back when the only
-    available data happened to span exactly 30 days; it silently produces
-    active_rate_pct over 100% (more data than 30 days) or an inflated
-    denominator (a filtered window shorter than 30 days) once that stops
-    being true."""
+    scope -- Bus tenure falls back to it directly (rather than a literal 30)
+    only when a Bus's device_installation_date isn't on file yet, since
+    FreshBus/ZingBus are a fixed roster assumed active for the whole window
+    otherwise. A hardcoded 30 was fine back when the only available data
+    happened to span exactly 30 days; it silently produces active_rate_pct
+    over 100% (more data than 30 days) or an inflated denominator (a
+    filtered window shorter than 30 days) once that stops being true."""
+    window_start = df_clean["Report Date"].min()
     end_date = df_clean["Report Date"].max()
     veh_type_clubbed = clubbed_vehicle_type(df_clean)
     vol_by_plate = df_clean.groupby("Base License Plate").apply(calc_active_volatility)
@@ -224,6 +278,7 @@ def build_active_stats(
             total_hours=("Running Time (in hours)", "sum"),
             active_days=("Distance", lambda s: (s > 0).sum()),
             first_date=("Report Date", "min"),
+            install_date=("Device Installation Date", "first"),
             vehicle_model=(
                 "Vehicle Model",
                 lambda s: s.dropna().iloc[0] if not s.dropna().empty else "Standard",
@@ -236,10 +291,7 @@ def build_active_stats(
 
     active_stats = stats[stats["total_distance"] > 0].copy()
     active_stats["total_days"] = active_stats.apply(
-        lambda r: observation_days
-        if r["vehicle_type"] == "Bus"
-        else float((end_date - r["first_date"]).days + 1),
-        axis=1,
+        lambda r: resolve_total_days(r, window_start, end_date, observation_days), axis=1
     )
     active_stats["avg_km_per_day"] = active_stats.apply(
         lambda r: (r["total_distance"] / r["active_days"]) if r["active_days"] > 0 else 0.0, axis=1
@@ -538,7 +590,15 @@ def build_dow_profiles(df_clean: pd.DataFrame) -> dict:
 def build_active_timeline(df_clean: pd.DataFrame) -> dict:
     all_dates = sorted(df_clean["Report Date"].dt.strftime("%Y-%m-%d").unique())
     first_dates_by_plate = df_clean.groupby("Base License Plate")["Report Date"].min().to_dict()
+    install_dates_by_plate = df_clean.groupby("Base License Plate")["Device Installation Date"].first().to_dict()
     billion_e_plates = df_clean[df_clean["Customer"] == "BillionE"]["Base License Plate"].unique()
+    # Prefer the real install date over "first reported date" for deciding
+    # when a BillionE truck joined the eligible fleet -- falls back to the
+    # approximation only for a plate whose install date isn't on file yet.
+    eligible_since_by_plate = {
+        p: install_dates_by_plate[p] if pd.notna(install_dates_by_plate.get(p)) else first_dates_by_plate[p]
+        for p in billion_e_plates
+    }
 
     active_timeline: dict = {"dates": all_dates}
     total_active_counts = [0] * len(all_dates)
@@ -554,7 +614,7 @@ def build_active_timeline(df_clean: pd.DataFrame) -> dict:
             pct_list = []
             for d in all_dates:
                 d_ts = pd.to_datetime(d)
-                eligible = [p for p in billion_e_plates if first_dates_by_plate.get(p) <= d_ts]
+                eligible = [p for p in billion_e_plates if eligible_since_by_plate.get(p) <= d_ts]
                 denom = len(eligible)
                 denom_list.append(denom)
                 c = counts.get(d, 0)

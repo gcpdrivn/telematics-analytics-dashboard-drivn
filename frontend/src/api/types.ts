@@ -181,3 +181,49 @@ export interface TrajectoryResponse {
   notice: string
   vehicles: TrajectoryVehicle[]
 }
+
+export type GeneralUptimeStatus = "RAN" | "NOT_RUN" | "NOT_SURE" | "NO_DATA"
+export type DetailedUptimeStatus =
+  | "RAN_CONFIRMED"
+  | "RAN_INFERRED"
+  | "NOT_RUN_CONFIRMED"
+  | "NOT_RUN_INFERRED_SINGLE"
+  | "NOT_RUN_INFERRED_MULTI"
+  | "NOT_RUN_ONGOING"
+  | "INDETERMINATE"
+  | "NO_DATA"
+
+export interface UptimeLegendItem {
+  status: string
+  label: string
+  color: string
+}
+
+export interface UptimeDay {
+  date: string
+  general_status: GeneralUptimeStatus
+  detailed_status: DetailedUptimeStatus
+  distance: number | null
+  note: string | null
+}
+
+export interface VehicleUptime {
+  vehicle_number: string
+  vehicle_type: "Bus" | "Truck"
+  vehicle_model: string
+  customer_name: CustomerName
+  uptime_pct: number | null
+  ran_days: number
+  not_run_days: number
+  not_sure_days: number
+  not_onboarded_days: number
+  total_days: number
+  daily: UptimeDay[]
+}
+
+export interface UptimeResponse {
+  dates: string[]
+  vehicles: VehicleUptime[]
+  legend_general: UptimeLegendItem[]
+  legend_detailed: UptimeLegendItem[]
+}

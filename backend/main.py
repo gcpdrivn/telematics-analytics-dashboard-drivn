@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend import data_loader
-from backend.routers import crosstab, customers, kpi, meta, trajectories, vehicles
+from backend.routers import crosstab, customers, kpi, meta, trajectories, uptime, vehicles
 
 app = FastAPI(title="Drivn Telematics API")
 
@@ -29,6 +29,7 @@ app.include_router(crosstab.router, prefix="/api")
 app.include_router(vehicles.router, prefix="/api")
 app.include_router(trajectories.router, prefix="/api")
 app.include_router(meta.router, prefix="/api")
+app.include_router(uptime.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -16,6 +16,7 @@ import { ActiveTimelineChart } from "../components/CustomerCharts/ActiveTimeline
 import { SeasonalityChart } from "../components/CustomerCharts/SeasonalityChart"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
+import { UptimeTable } from "../components/UptimeTable"
 import { VehicleTrajectoryChart } from "../components/VehicleTrajectoryChart"
 import { useDateRange } from "../hooks/useDateRange"
 
@@ -84,6 +85,8 @@ export function CustomersPage() {
           </div>
         </div>
       </div>
+
+      <UptimeTable range={range} />
 
       <div className="charts-grid">
         <div className="panel">

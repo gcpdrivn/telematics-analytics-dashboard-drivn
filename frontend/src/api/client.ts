@@ -8,6 +8,7 @@ import type {
   KpiSummary,
   Scope,
   TrajectoryResponse,
+  UptimeResponse,
   VehiclesResponse,
 } from "./types"
 
@@ -86,4 +87,42 @@ export function getVehicleTrajectories(
 
 export function getDateRange(): Promise<DateRangeResponse> {
   return getJSON(`/api/date-range`)
+}
+
+export function getVehicleUptime(
+  customer: CrosstabCustomer,
+  range?: DateRange
+): Promise<UptimeResponse> {
+  const params = withDateRange(new URLSearchParams({ customer }), range)
+  return getJSON(`/api/uptime?${params}`)
+}
+
+/** No existing helper does a non-JSON (file) fetch -- getJSON always calls
+ * res.json(). This fetches the xlsx as a blob and triggers a normal browser
+ * save-as via a throwaway <a download> link, same as any other file
+ * download; nothing else in the app needed this before. */
+export async function downloadUptimeExport(
+  customer: CrosstabCustomer,
+  mode: "general" | "detailed",
+  range?: DateRange
+): Promise<void> {
+  const params = withDateRange(new URLSearchParams({ customer, mode }), range)
+  const url = `/api/uptime/export?${params}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`${url} -> ${res.status} ${res.statusText}`)
+  }
+  const blob = await res.blob()
+  const disposition = res.headers.get("Content-Disposition") ?? ""
+  const match = disposition.match(/filename="?([^"]+)"?/)
+  const filename = match ? match[1] : `vehicle-uptime-${mode}.xlsx`
+
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }

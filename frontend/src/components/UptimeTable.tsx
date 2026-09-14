@@ -1,0 +1,193 @@
+import { useEffect, useMemo, useState } from "react"
+import { downloadUptimeExport, getVehicleUptime } from "../api/client"
+import type { DateRange } from "../api/client"
+import type { CrosstabCustomer, UptimeDay, UptimeResponse, VehicleUptime } from "../api/types"
+
+const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", "FreshBus", "ZingBus", "BillionE"]
+type ColorMode = "general" | "detailed"
+type SortKey = "vehicle_number" | "uptime_pct" | "ran_days" | "not_run_days" | "not_sure_days"
+
+function dayStatus(day: UptimeDay, mode: ColorMode): string {
+  return mode === "general" ? day.general_status : day.detailed_status
+}
+
+function formatDateHeader(iso: string): string {
+  const [, m, d] = iso.split("-")
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  return `${d} ${months[Number(m) - 1]}`
+}
+
+export function UptimeTable({ range }: { range: DateRange }) {
+  const [customer, setCustomer] = useState<CrosstabCustomer>("All")
+  const [colorMode, setColorMode] = useState<ColorMode>("general")
+  const [data, setData] = useState<UptimeResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<"general" | "detailed" | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey>("uptime_pct")
+  const [sortDir, setSortDir] = useState<1 | -1>(1)
+
+  useEffect(() => {
+    let cancelled = false
+    setData(null)
+    setError(null)
+    getVehicleUptime(customer, range)
+      .then((d) => !cancelled && setData(d))
+      .catch((e) => !cancelled && setError(String(e)))
+    return () => {
+      cancelled = true
+    }
+  }, [customer, range.start, range.end])
+
+  const rows = useMemo(() => {
+    if (!data) return []
+    const copy = [...data.vehicles]
+    copy.sort((a, b) => {
+      const av = a[sortKey]
+      const bv = b[sortKey]
+      const an = av === null ? -Infinity : (av as number)
+      const bn = bv === null ? -Infinity : (bv as number)
+      if (typeof av === "string" || typeof bv === "string") {
+        return sortDir * String(av).localeCompare(String(bv))
+      }
+      return sortDir * (an - bn)
+    })
+    return copy
+  }, [data, sortKey, sortDir])
+
+  function headerClick(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 1 ? -1 : 1))
+    } else {
+      setSortKey(key)
+      setSortDir(key === "vehicle_number" ? 1 : -1)
+    }
+  }
+
+  async function handleExport(mode: "general" | "detailed") {
+    setExporting(mode)
+    try {
+      await downloadUptimeExport(customer, mode, range)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const legend = data ? (colorMode === "general" ? data.legend_general : data.legend_detailed) : []
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Vehicle Uptime Calendar</div>
+      <div className="panel-body">
+        <div className="uptime-toolbar">
+          <div className="customer-nav">
+            {CUSTOMER_FILTERS.map((c) => (
+              <button
+                key={c}
+                className={`seg-pill ${customer === c ? "active" : ""}`}
+                onClick={() => setCustomer(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <div className="customer-nav">
+            <button
+              className={`seg-pill ${colorMode === "general" ? "active" : ""}`}
+              onClick={() => setColorMode("general")}
+            >
+              General
+            </button>
+            <button
+              className={`seg-pill ${colorMode === "detailed" ? "active" : ""}`}
+              onClick={() => setColorMode("detailed")}
+            >
+              Detailed
+            </button>
+          </div>
+          <div className="uptime-export-actions">
+            <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("general")}>
+              {exporting === "general" ? "Exporting…" : "⬇️ Export General"}
+            </button>
+            <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("detailed")}>
+              {exporting === "detailed" ? "Exporting…" : "⬇️ Export Detailed"}
+            </button>
+          </div>
+        </div>
+
+        <div className="uptime-legend">
+          {legend.map((item) => (
+            <span key={item.status} className="uptime-legend-item">
+              <span className="uptime-swatch" style={{ background: item.color }} />
+              {item.label}
+            </span>
+          ))}
+        </div>
+
+        {error && <div className="error-box">Failed to load: {error}</div>}
+        {!error && !data && <div className="loading">Loading uptime calendar…</div>}
+
+        {data && data.vehicles.length === 0 && (
+          <div className="muted" style={{ padding: "1rem 0" }}>
+            No vehicles found for this filter/date range.
+          </div>
+        )}
+
+        {data && data.vehicles.length > 0 && (
+          <div className="table-container uptime-table-container">
+            <table className="uptime-table">
+              <thead>
+                <tr>
+                  <th className="uptime-sticky-col" onClick={() => headerClick("vehicle_number")}>
+                    Vehicle Number
+                  </th>
+                  <th className="uptime-sticky-col uptime-col-2">Type</th>
+                  <th className="uptime-sticky-col uptime-col-3">Model</th>
+                  <th className="uptime-sticky-col uptime-col-4">Customer</th>
+                  <th className="uptime-sticky-col uptime-col-5" onClick={() => headerClick("uptime_pct")}>
+                    Uptime %
+                  </th>
+                  {data.dates.map((d) => (
+                    <th key={d} className="uptime-date-col">
+                      {formatDateHeader(d)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((v: VehicleUptime) => (
+                  <tr key={v.vehicle_number}>
+                    <td className="uptime-sticky-col plate-cell">{v.vehicle_number}</td>
+                    <td className="uptime-sticky-col uptime-col-2">
+                      <span className={`type-pill ${v.vehicle_type === "Bus" ? "bus" : "truck"}`}>
+                        {v.vehicle_type}
+                      </span>
+                    </td>
+                    <td className="uptime-sticky-col uptime-col-3">{v.vehicle_model}</td>
+                    <td className="uptime-sticky-col uptime-col-4">{v.customer_name}</td>
+                    <td className="uptime-sticky-col uptime-col-5" style={{ fontWeight: 700 }}>
+                      {v.uptime_pct !== null ? `${v.uptime_pct.toFixed(1)}%` : "—"}
+                    </td>
+                    {v.daily.map((day) => {
+                      const status = dayStatus(day, colorMode)
+                      const item = legend.find((l) => l.status === status)
+                      return (
+                        <td
+                          key={day.date}
+                          className="uptime-day-cell"
+                          style={{ background: item?.color }}
+                          title={day.note ?? `${day.date}: ${item?.label ?? status}`}
+                        />
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

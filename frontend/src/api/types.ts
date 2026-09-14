@@ -194,6 +194,7 @@ export type DetailedUptimeStatus =
   | "NO_DATA"
 
 export interface UptimeLegendItem {
+  index: number
   status: string
   label: string
   color: string

@@ -93,12 +93,15 @@ _DETAILED_ORDER = [
 _GENERAL_ORDER = ["RAN", "NOT_RUN", "NOT_SURE", "NO_DATA"]
 
 LEGEND_GENERAL = [
-    {"status": k, "label": GENERAL_LABELS[k], "color": GENERAL_COLORS[k]} for k in _GENERAL_ORDER
+    {"index": i, "status": k, "label": GENERAL_LABELS[k], "color": GENERAL_COLORS[k]}
+    for i, k in enumerate(_GENERAL_ORDER, start=1)
 ]
 LEGEND_DETAILED = [
-    {"status": k, "label": STATUS_INFO[k]["label"], "color": STATUS_INFO[k]["color"]}
-    for k in _DETAILED_ORDER
+    {"index": i, "status": k, "label": STATUS_INFO[k]["label"], "color": STATUS_INFO[k]["color"]}
+    for i, k in enumerate(_DETAILED_ORDER, start=1)
 ]
+GENERAL_INDEX = {item["status"]: item["index"] for item in LEGEND_GENERAL}
+DETAILED_INDEX = {item["status"]: item["index"] for item in LEGEND_DETAILED}
 
 
 def _resolve_odo(row: dict | None, prefer: str, fallback: str) -> float | None:

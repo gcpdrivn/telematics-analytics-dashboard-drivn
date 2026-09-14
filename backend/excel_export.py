@@ -13,32 +13,28 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from backend.uptime import GENERAL_COLORS, LEGEND_DETAILED, LEGEND_GENERAL, STATUS_INFO
+from backend.uptime import (
+    DETAILED_INDEX,
+    GENERAL_COLORS,
+    GENERAL_INDEX,
+    LEGEND_DETAILED,
+    LEGEND_GENERAL,
+    STATUS_INFO,
+)
 
 FIXED_HEADERS = ["Vehicle Number", "Vehicle Type", "Vehicle Model", "Customer Name", "Uptime %"]
-
-_CODE_MAP = {
-    "RAN": "R",
-    "NOT_RUN": "N",
-    "NOT_SURE": "?",
-    "NO_DATA": "-",
-    "RAN_CONFIRMED": "R",
-    "RAN_INFERRED": "R~",
-    "NOT_RUN_CONFIRMED": "N",
-    "NOT_RUN_INFERRED_SINGLE": "N~1",
-    "NOT_RUN_INFERRED_MULTI": "N~",
-    "NOT_RUN_ONGOING": "N!",
-    "INDETERMINATE": "?",
-}
-
-
-def _code(status: str) -> str:
-    return _CODE_MAP.get(status, "")
 
 
 def _fill(hex_color: str) -> PatternFill:
     c = hex_color.lstrip("#").upper()
     return PatternFill(start_color=f"FF{c}", end_color=f"FF{c}", fill_type="solid")
+
+
+def _contrast_text(hex_color: str) -> str:
+    c = hex_color.lstrip("#")
+    r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return "FF1A1A1A" if luminance > 0.6 else "FFFFFFFF"
 
 
 def _pct_color(pct: float | None) -> str:
@@ -53,19 +49,22 @@ def _pct_color(pct: float | None) -> str:
 
 def _add_legend_sheet(wb: Workbook, mode: str) -> None:
     ws = wb.create_sheet("Legend")
-    ws.append(["Color", "Status", "Meaning"])
+    ws.append(["Index", "Color", "Status", "Meaning"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
     legend = LEGEND_GENERAL if mode == "general" else LEGEND_DETAILED
     for r, item in enumerate(legend, start=2):
-        swatch = ws.cell(row=r, column=1, value=_code(item["status"]))
+        idx_cell = ws.cell(row=r, column=1, value=item["index"])
+        idx_cell.alignment = Alignment(horizontal="center")
+        idx_cell.font = Font(bold=True)
+        swatch = ws.cell(row=r, column=2, value="")
         swatch.fill = _fill(item["color"])
-        swatch.alignment = Alignment(horizontal="center")
-        ws.cell(row=r, column=2, value=item["status"])
-        ws.cell(row=r, column=3, value=item["label"])
-    ws.column_dimensions["A"].width = 10
-    ws.column_dimensions["B"].width = 28
-    ws.column_dimensions["C"].width = 55
+        ws.cell(row=r, column=3, value=item["status"])
+        ws.cell(row=r, column=4, value=item["label"])
+    ws.column_dimensions["A"].width = 8
+    ws.column_dimensions["B"].width = 10
+    ws.column_dimensions["C"].width = 28
+    ws.column_dimensions["D"].width = 55
 
 
 def build_uptime_workbook(
@@ -82,6 +81,7 @@ def build_uptime_workbook(
     for cell in ws[1]:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
+    ws["A1"].comment = Comment("Each day cell shows the legend index for its status -- see the Legend sheet.", "Drivn Uptime Report")
 
     for r, v in enumerate(vehicles, start=2):
         ws.cell(row=r, column=1, value=v["vehicle_number"])
@@ -100,8 +100,10 @@ def build_uptime_workbook(
                 continue
             status = info["general_status"] if mode == "general" else info["detailed_status"]
             color = GENERAL_COLORS[status] if mode == "general" else STATUS_INFO[status]["color"]
-            cell = ws.cell(row=r, column=c, value=_code(status))
+            index = GENERAL_INDEX[status] if mode == "general" else DETAILED_INDEX[status]
+            cell = ws.cell(row=r, column=c, value=index)
             cell.fill = _fill(color)
+            cell.font = Font(bold=True, color=_contrast_text(color))
             cell.alignment = Alignment(horizontal="center")
             if mode == "detailed" and info.get("note"):
                 cell.comment = Comment(info["note"], "Drivn Uptime Report")

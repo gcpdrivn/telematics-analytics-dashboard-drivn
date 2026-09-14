@@ -17,6 +17,15 @@ function formatDateHeader(iso: string): string {
   return `${d} ${months[Number(m) - 1]}`
 }
 
+function contrastText(hex: string): string {
+  const c = hex.replace("#", "")
+  const r = parseInt(c.substring(0, 2), 16)
+  const g = parseInt(c.substring(2, 4), 16)
+  const b = parseInt(c.substring(4, 6), 16)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? "#1a1a1a" : "#ffffff"
+}
+
 export function UptimeTable({ range }: { range: DateRange }) {
   const [customer, setCustomer] = useState<CrosstabCustomer>("All")
   const [colorMode, setColorMode] = useState<ColorMode>("general")
@@ -119,7 +128,12 @@ export function UptimeTable({ range }: { range: DateRange }) {
         <div className="uptime-legend">
           {legend.map((item) => (
             <span key={item.status} className="uptime-legend-item">
-              <span className="uptime-swatch" style={{ background: item.color }} />
+              <span
+                className="uptime-swatch"
+                style={{ background: item.color, color: contrastText(item.color) }}
+              >
+                {item.index}
+              </span>
               {item.label}
             </span>
           ))}
@@ -176,9 +190,14 @@ export function UptimeTable({ range }: { range: DateRange }) {
                         <td
                           key={day.date}
                           className="uptime-day-cell"
-                          style={{ background: item?.color }}
+                          style={{
+                            background: item?.color,
+                            color: item ? contrastText(item.color) : undefined,
+                          }}
                           title={day.note ?? `${day.date}: ${item?.label ?? status}`}
-                        />
+                        >
+                          {item?.index}
+                        </td>
                       )
                     })}
                   </tr>

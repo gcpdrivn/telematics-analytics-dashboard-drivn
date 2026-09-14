@@ -17,7 +17,7 @@ import logging
 
 import pandas as pd
 
-from ingestion import bq_client
+from ingestion import bq_client, vehicle_master
 from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,28 @@ ZINGBUS_PLATES = [
 ]
 
 BILLIONE_PLATE_PREFIX = "MH02"
+
+def _clubbed_vehicle_type(vehicle_types: pd.Series) -> str | None:
+    """Mirrors backend/metrics.py's clubbed_vehicle_type(): the modal
+    Vehicle Type across a plate's reported rows, with Heavy Puller clubbed
+    into Truck."""
+    mode = vehicle_types.mode()
+    if mode.empty:
+        return None
+    t = mode.iloc[0]
+    return "Truck" if t == "Heavy Puller" else t
+
+
+def _derive_type_model_by_plate(type_model_df: pd.DataFrame) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for plate, sub in type_model_df.groupby("base_license_plate"):
+        model_series = sub["vehicle_model"].dropna()
+        result[plate] = {
+            "vehicle_type": _clubbed_vehicle_type(sub["vehicle_type"]),
+            "vehicle_model": model_series.iloc[0] if not model_series.empty else None,
+        }
+    return result
+
 
 DIM_CUSTOMERS = [
     {
@@ -74,6 +96,66 @@ def run(settings: Settings) -> None:
         + [{"base_license_plate": p, "customer_name": "ZingBus"} for p in ZINGBUS_PLATES]
         + [{"base_license_plate": p, "customer_name": "BillionE"} for p in billione_plates]
     )
+
+    # DIM_CUSTOMERS' oem is customer-level and still carries a "(Bus)"/"(Truck)"
+    # annotation (e.g. "TATA (Truck)") -- clean it the same way the vehicle
+    # master file's oem column is cleaned, so a vehicle falling back to this
+    # (not yet in the master file) doesn't get an uncleaned value.
+    customer_oem = {c["customer_name"]: vehicle_master.clean_oem(c["oem"]) for c in DIM_CUSTOMERS}
+
+    # The vehicle master spreadsheet (hand-filled OEM/type/model/install date)
+    # is the preferred source whenever a plate is in it, so a reseed never
+    # wipes out manually entered data. Plates missing from it (e.g. a brand
+    # new truck not yet added to the sheet) fall back to telemetry-derived
+    # oem/type/model, with device_installation_date left NULL -- there's no
+    # telemetry field that could supply it.
+    master_by_plate: dict[str, dict] = {}
+    if settings.dim_vehicle_master_file.exists():
+        master_df = vehicle_master.read_and_clean_vehicle_master(settings.dim_vehicle_master_file)
+        master_by_plate = master_df.set_index("base_license_plate").to_dict("index")
+        logger.info(
+            "Loaded %d row(s) from vehicle master file '%s'.",
+            len(master_df),
+            settings.dim_vehicle_master_file.name,
+        )
+    else:
+        logger.warning(
+            "Vehicle master file '%s' not found -- oem/vehicle_type/vehicle_model "
+            "will be derived from telemetry, device_installation_date left NULL "
+            "for every vehicle.",
+            settings.dim_vehicle_master_file,
+        )
+
+    missing_plates = [
+        r["base_license_plate"] for r in vehicle_rows if r["base_license_plate"] not in master_by_plate
+    ]
+    type_model_by_plate = _derive_type_model_by_plate(
+        bq_client.get_vehicle_type_model_rows(client, settings, missing_plates)
+    )
+
+    for row in vehicle_rows:
+        plate = row["base_license_plate"]
+        master_row = master_by_plate.get(plate)
+        if master_row is not None:
+            if master_row["customer_name"] != row["customer_name"]:
+                logger.warning(
+                    "%s: vehicle master file assigns customer '%s' but the "
+                    "roster assigns '%s' -- keeping the roster's customer, "
+                    "using the master file's oem/type/model/install date.",
+                    plate,
+                    master_row["customer_name"],
+                    row["customer_name"],
+                )
+            row["oem"] = master_row["oem"]
+            row["vehicle_type"] = master_row["vehicle_type"]
+            row["vehicle_model"] = master_row["vehicle_model"]
+            row["device_installation_date"] = master_row["device_installation_date"]
+        else:
+            derived = type_model_by_plate.get(plate, {})
+            row["oem"] = customer_oem.get(row["customer_name"])
+            row["vehicle_type"] = derived.get("vehicle_type")
+            row["vehicle_model"] = derived.get("vehicle_model")
+            row["device_installation_date"] = None
 
     customer_df = pd.DataFrame(DIM_CUSTOMERS)
     vehicle_df = pd.DataFrame(vehicle_rows)

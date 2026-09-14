@@ -35,6 +35,7 @@ class Settings:
     bq_dim_vehicle_table: str
     raw_utilization_dir: Path
     mileage_soc_file: Path
+    dim_vehicle_master_file: Path
 
     @property
     def dataset_ref(self) -> str:
@@ -90,5 +91,8 @@ def load_settings() -> Settings:
         ),
         mileage_soc_file=_resolve_path(
             "MILEAGE_SOC_FILE", "data/raw/vehicle_mileage_soc.xlsx"
+        ),
+        dim_vehicle_master_file=_resolve_path(
+            "DIM_VEHICLE_MASTER_FILE", "data/raw/dim_vehicle_master.xlsx"
         ),
     )

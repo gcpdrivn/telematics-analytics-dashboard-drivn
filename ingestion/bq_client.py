@@ -140,6 +140,30 @@ def get_distinct_plates_by_prefix(
     return sorted(row.base_license_plate for row in rows)
 
 
+def get_vehicle_type_model_rows(
+    client: bigquery.Client, settings: Settings, plates: list[str]
+) -> pd.DataFrame:
+    """Raw (base_license_plate, vehicle_type, vehicle_model) rows from
+    utilization_daily for the given plates -- one row per day reported, not
+    deduped -- so the caller can derive one canonical type/model per vehicle
+    the same way backend/metrics.py's clubbed_vehicle_type() does (mode of
+    vehicle_type, first non-null vehicle_model)."""
+    if not plates:
+        return pd.DataFrame(columns=["base_license_plate", "vehicle_type", "vehicle_model"])
+    query = f"""
+        SELECT base_license_plate, vehicle_type, vehicle_model
+        FROM `{settings.utilization_table_ref}`
+        WHERE base_license_plate IN UNNEST(@plates)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ArrayQueryParameter("plates", "STRING", plates)]
+    )
+    rows = client.query(query, job_config=job_config).result()
+    return pd.DataFrame(
+        [dict(r) for r in rows], columns=["base_license_plate", "vehicle_type", "vehicle_model"]
+    )
+
+
 def load_dim_customer_rows(
     client: bigquery.Client, settings: Settings, df: pd.DataFrame
 ) -> None:

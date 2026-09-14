@@ -78,7 +78,22 @@ DIM_CUSTOMER_SCHEMA = [
 # plate lists from the script; BillionE rows are discovered from
 # utilization_daily (base_license_plate LIKE 'MH02%') rather than hardcoded,
 # reproducing the script's startswith('MH02') rule as real rows.
+#
+# oem/vehicle_type/vehicle_model are seeded from derived data (dim_customer's
+# oem, and the same mode-of-Vehicle-Type / first-non-null-Vehicle-Model logic
+# backend/metrics.py uses) so a full-refresh reseed doesn't need manual input
+# to stay populated. device_installation_date has no derivable source --
+# it's manually maintained (filled in from a vehicle master spreadsheet) and
+# seed_dimensions.py always writes it as NULL; nothing here should overwrite
+# a value entered directly in BigQuery.
 DIM_VEHICLE_SCHEMA = [
     bigquery.SchemaField("base_license_plate", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("customer_name", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("oem", "STRING", mode="NULLABLE",
+                          description="Vehicle manufacturer/OEM for this specific vehicle -- may differ from dim_customer.oem when a customer's fleet mixes OEMs."),
+    bigquery.SchemaField("vehicle_type", "STRING", mode="NULLABLE",
+                          description="'Bus' or 'Truck', clubbed the same way backend/metrics.py's clubbed_vehicle_type() does (Heavy Puller -> Truck)."),
+    bigquery.SchemaField("vehicle_model", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("device_installation_date", "DATE", mode="NULLABLE",
+                          description="Date the telematics device was physically installed in this vehicle. Manually maintained -- not derivable from telemetry."),
 ]

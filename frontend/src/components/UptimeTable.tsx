@@ -106,21 +106,21 @@ export function UptimeTable({ range }: { range: DateRange }) {
               className={`seg-pill ${colorMode === "general" ? "active" : ""}`}
               onClick={() => setColorMode("general")}
             >
-              General
+              Running Status
             </button>
             <button
               className={`seg-pill ${colorMode === "detailed" ? "active" : ""}`}
               onClick={() => setColorMode("detailed")}
             >
-              Detailed
+              Device Status
             </button>
           </div>
           <div className="uptime-export-actions">
             <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("general")}>
-              {exporting === "general" ? "Exporting…" : "⬇️ Export General"}
+              {exporting === "general" ? "Exporting…" : "⬇️ Export Running Status"}
             </button>
             <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("detailed")}>
-              {exporting === "detailed" ? "Exporting…" : "⬇️ Export Detailed"}
+              {exporting === "detailed" ? "Exporting…" : "⬇️ Export Device Status"}
             </button>
           </div>
         </div>
@@ -132,7 +132,7 @@ export function UptimeTable({ range }: { range: DateRange }) {
                 className="uptime-swatch"
                 style={{ background: item.color, color: contrastText(item.color) }}
               >
-                {item.index}
+                {colorMode === "general" ? item.index : null}
               </span>
               {item.label}
             </span>
@@ -196,7 +196,7 @@ export function UptimeTable({ range }: { range: DateRange }) {
                           }}
                           title={day.note ?? `${day.date}: ${item?.label ?? status}`}
                         >
-                          {item?.index}
+                          {colorMode === "general" ? item?.index : null}
                         </td>
                       )
                     })}

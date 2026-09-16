@@ -14,12 +14,11 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from backend.uptime import (
-    DETAILED_INDEX,
+    DETAILED_COLORS,
     GENERAL_COLORS,
     GENERAL_INDEX,
     LEGEND_DETAILED,
     LEGEND_GENERAL,
-    STATUS_INFO,
 )
 
 FIXED_HEADERS = ["Vehicle Number", "Vehicle Type", "Vehicle Model", "Customer Name", "Uptime %"]
@@ -66,6 +65,14 @@ def _add_legend_sheet(wb: Workbook, mode: str) -> None:
     ws.column_dimensions["C"].width = 28
     ws.column_dimensions["D"].width = 55
 
+    if mode == "detailed":
+        note_row = len(legend) + 3
+        ws.cell(
+            row=note_row,
+            column=1,
+            value="Blank day cells have no device-side issue (device presumed working).",
+        ).font = Font(italic=True)
+
 
 def build_uptime_workbook(
     vehicles: list[dict], dates_desc: list[str], mode: Literal["general", "detailed"]
@@ -81,7 +88,12 @@ def build_uptime_workbook(
     for cell in ws[1]:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-    ws["A1"].comment = Comment("Each day cell shows the legend index for its status -- see the Legend sheet.", "Drivn Uptime Report")
+    header_note = (
+        "Each day cell shows the legend index for its status -- see the Legend sheet."
+        if mode == "general"
+        else "Colored day cells flag a device-side issue -- see the Legend sheet. Blank cells have no device issue."
+    )
+    ws["A1"].comment = Comment(header_note, "Drivn Uptime Report")
 
     for r, v in enumerate(vehicles, start=2):
         ws.cell(row=r, column=1, value=v["vehicle_number"])
@@ -99,11 +111,19 @@ def build_uptime_workbook(
             if info is None:
                 continue
             status = info["general_status"] if mode == "general" else info["detailed_status"]
-            color = GENERAL_COLORS[status] if mode == "general" else STATUS_INFO[status]["color"]
-            index = GENERAL_INDEX[status] if mode == "general" else DETAILED_INDEX[status]
+            if mode == "general":
+                color, index = GENERAL_COLORS[status], GENERAL_INDEX[status]
+            else:
+                # Only the device-flagged statuses (see LEGEND_DETAILED) get a
+                # fill here -- everything else has no device-side issue, so
+                # the cell is left blank in this view. With just 3 flagged
+                # categories the color alone is enough to tell them apart, so
+                # no index number is written into the cell either.
+                color, index = DETAILED_COLORS.get(status), None
             cell = ws.cell(row=r, column=c, value=index)
-            cell.fill = _fill(color)
-            cell.font = Font(bold=True, color=_contrast_text(color))
+            if color is not None:
+                cell.fill = _fill(color)
+                cell.font = Font(bold=True, color=_contrast_text(color))
             cell.alignment = Alignment(horizontal="center")
             if mode == "detailed" and info.get("note"):
                 cell.comment = Comment(info["note"], "Drivn Uptime Report")

@@ -84,7 +84,8 @@ def uptime_export(
     dates_desc = _dates_desc(start, end)
     content = build_uptime_workbook(vehicles, dates_desc, mode)  # type: ignore[arg-type]
 
-    filename = f"vehicle-uptime-{mode}-{start.isoformat()}-{end.isoformat()}.xlsx"
+    mode_slug = "running-status" if mode == "general" else "device-status"
+    filename = f"vehicle-uptime-{mode_slug}-{start.isoformat()}-{end.isoformat()}.xlsx"
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

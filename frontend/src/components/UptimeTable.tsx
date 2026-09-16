@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { downloadUptimeExport, getVehicleUptime } from "../api/client"
 import type { DateRange } from "../api/client"
-import type { CrosstabCustomer, UptimeDay, UptimeResponse, VehicleUptime } from "../api/types"
+import type { CrosstabCustomer, UptimeResponse, VehicleUptime } from "../api/types"
 
 const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", "FreshBus", "ZingBus", "BillionE"]
-type ColorMode = "general" | "detailed"
 type SortKey = "vehicle_number" | "uptime_pct" | "ran_days" | "not_run_days" | "not_sure_days"
-
-function dayStatus(day: UptimeDay, mode: ColorMode): string {
-  return mode === "general" ? day.general_status : day.detailed_status
-}
 
 function formatDateHeader(iso: string): string {
   const [, m, d] = iso.split("-")
@@ -28,10 +23,9 @@ function contrastText(hex: string): string {
 
 export function UptimeTable({ range }: { range: DateRange }) {
   const [customer, setCustomer] = useState<CrosstabCustomer>("All")
-  const [colorMode, setColorMode] = useState<ColorMode>("general")
   const [data, setData] = useState<UptimeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState<"general" | "detailed" | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>("uptime_pct")
   const [sortDir, setSortDir] = useState<1 | -1>(1)
 
@@ -72,18 +66,19 @@ export function UptimeTable({ range }: { range: DateRange }) {
     }
   }
 
-  async function handleExport(mode: "general" | "detailed") {
-    setExporting(mode)
+  async function handleExport() {
+    setExporting(true)
     try {
-      await downloadUptimeExport(customer, mode, range)
+      await downloadUptimeExport(customer, range)
     } catch (e) {
       setError(String(e))
     } finally {
-      setExporting(null)
+      setExporting(false)
     }
   }
 
-  const legend = data ? (colorMode === "general" ? data.legend_general : data.legend_detailed) : []
+  const legend = data ? data.legend_combined : []
+  const detailedLabels = data ? Object.fromEntries(data.legend_detailed.map((l) => [l.status, l.label])) : {}
 
   return (
     <div className="panel">
@@ -101,26 +96,9 @@ export function UptimeTable({ range }: { range: DateRange }) {
               </button>
             ))}
           </div>
-          <div className="customer-nav">
-            <button
-              className={`seg-pill ${colorMode === "general" ? "active" : ""}`}
-              onClick={() => setColorMode("general")}
-            >
-              Running Status
-            </button>
-            <button
-              className={`seg-pill ${colorMode === "detailed" ? "active" : ""}`}
-              onClick={() => setColorMode("detailed")}
-            >
-              Device Status
-            </button>
-          </div>
           <div className="uptime-export-actions">
-            <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("general")}>
-              {exporting === "general" ? "Exporting…" : "⬇️ Export Running Status"}
-            </button>
-            <button className="btn-action" disabled={exporting !== null} onClick={() => handleExport("detailed")}>
-              {exporting === "detailed" ? "Exporting…" : "⬇️ Export Device Status"}
+            <button className="btn-action" disabled={exporting} onClick={() => handleExport()}>
+              {exporting ? "Exporting…" : "⬇️ Export"}
             </button>
           </div>
         </div>
@@ -129,10 +107,10 @@ export function UptimeTable({ range }: { range: DateRange }) {
           {legend.map((item) => (
             <span key={item.status} className="uptime-legend-item">
               <span
-                className="uptime-swatch"
-                style={{ background: item.color, color: contrastText(item.color) }}
+                className={`uptime-swatch ${item.color ? "" : "uptime-swatch-blank"}`}
+                style={item.color ? { background: item.color, color: contrastText(item.color) } : undefined}
               >
-                {colorMode === "general" ? item.index : null}
+                {item.index}
               </span>
               {item.label}
             </span>
@@ -184,20 +162,15 @@ export function UptimeTable({ range }: { range: DateRange }) {
                       {v.uptime_pct !== null ? `${v.uptime_pct.toFixed(1)}%` : "—"}
                     </td>
                     {v.daily.map((day) => {
-                      const status = dayStatus(day, colorMode)
-                      const item = legend.find((l) => l.status === status)
+                      const item = legend.find((l) => l.status === day.combined_status)
+                      const detail = detailedLabels[day.detailed_status] ?? day.detailed_status
                       return (
                         <td
                           key={day.date}
                           className="uptime-day-cell"
-                          style={{
-                            background: item?.color,
-                            color: item ? contrastText(item.color) : undefined,
-                          }}
-                          title={day.note ?? `${day.date}: ${item?.label ?? status}`}
-                        >
-                          {colorMode === "general" ? item?.index : null}
-                        </td>
+                          style={item?.color ? { background: item.color } : undefined}
+                          title={day.note ?? `${day.date}: ${item?.label ?? day.combined_status} (${detail})`}
+                        />
                       )
                     })}
                   </tr>

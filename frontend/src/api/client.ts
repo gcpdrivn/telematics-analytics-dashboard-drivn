@@ -101,12 +101,8 @@ export function getVehicleUptime(
  * res.json(). This fetches the xlsx as a blob and triggers a normal browser
  * save-as via a throwaway <a download> link, same as any other file
  * download; nothing else in the app needed this before. */
-export async function downloadUptimeExport(
-  customer: CrosstabCustomer,
-  mode: "general" | "detailed",
-  range?: DateRange
-): Promise<void> {
-  const params = withDateRange(new URLSearchParams({ customer, mode }), range)
+export async function downloadUptimeExport(customer: CrosstabCustomer, range?: DateRange): Promise<void> {
+  const params = withDateRange(new URLSearchParams({ customer }), range)
   const url = `/api/uptime/export?${params}`
   const res = await fetch(url)
   if (!res.ok) {
@@ -115,7 +111,7 @@ export async function downloadUptimeExport(
   const blob = await res.blob()
   const disposition = res.headers.get("Content-Disposition") ?? ""
   const match = disposition.match(/filename="?([^"]+)"?/)
-  const filename = match ? match[1] : `vehicle-uptime-${mode}.xlsx`
+  const filename = match ? match[1] : "vehicle-uptime.xlsx"
 
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement("a")

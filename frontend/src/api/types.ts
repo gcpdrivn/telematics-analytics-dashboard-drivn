@@ -193,17 +193,20 @@ export type DetailedUptimeStatus =
   | "INDETERMINATE"
   | "NO_DATA"
 
+export type CombinedUptimeStatus = "RUNNING_STABLE" | "RUNNING_UNSTABLE" | "STOPPED_STABLE" | "NOT_ONBOARDED"
+
 export interface UptimeLegendItem {
   index: number
   status: string
   label: string
-  color: string
+  color: string | null
 }
 
 export interface UptimeDay {
   date: string
   general_status: GeneralUptimeStatus
   detailed_status: DetailedUptimeStatus
+  combined_status: CombinedUptimeStatus
   distance: number | null
   note: string | null
 }
@@ -227,4 +230,5 @@ export interface UptimeResponse {
   vehicles: VehicleUptime[]
   legend_general: UptimeLegendItem[]
   legend_detailed: UptimeLegendItem[]
+  legend_combined: UptimeLegendItem[]
 }

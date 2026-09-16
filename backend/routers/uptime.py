@@ -9,11 +9,10 @@ from fastapi.responses import StreamingResponse
 
 from backend import data_loader, metrics
 from backend.excel_export import build_uptime_workbook
-from backend.uptime import LEGEND_DETAILED, LEGEND_GENERAL, build_vehicle_uptime
+from backend.uptime import LEGEND_COMBINED, LEGEND_DETAILED, LEGEND_GENERAL, build_vehicle_uptime
 
 router = APIRouter()
 
-VALID_MODES = {"general", "detailed"}
 VALID_CUSTOMERS = ["All", *metrics.CUSTOMERS]
 
 
@@ -53,7 +52,13 @@ def uptime(
 ):
     df_full = _load_scoped(customer)
     if df_full.empty:
-        return {"dates": [], "vehicles": [], "legend_general": LEGEND_GENERAL, "legend_detailed": LEGEND_DETAILED}
+        return {
+            "dates": [],
+            "vehicles": [],
+            "legend_general": LEGEND_GENERAL,
+            "legend_detailed": LEGEND_DETAILED,
+            "legend_combined": LEGEND_COMBINED,
+        }
 
     start, end = _resolve_range(start_date, end_date, df_full)
     vehicles = build_vehicle_uptime(df_full, start, end)
@@ -62,6 +67,7 @@ def uptime(
         "vehicles": vehicles,
         "legend_general": LEGEND_GENERAL,
         "legend_detailed": LEGEND_DETAILED,
+        "legend_combined": LEGEND_COMBINED,
     }
 
 
@@ -70,11 +76,7 @@ def uptime_export(
     start_date: dt.date | None = None,
     end_date: dt.date | None = None,
     customer: str | None = Query(None),
-    mode: str = Query("general"),
 ):
-    if mode not in VALID_MODES:
-        raise HTTPException(400, f"mode must be one of {sorted(VALID_MODES)}")
-
     df_full = _load_scoped(customer)
     if df_full.empty:
         raise HTTPException(404, "No data available for the selected filters")
@@ -82,10 +84,9 @@ def uptime_export(
     start, end = _resolve_range(start_date, end_date, df_full)
     vehicles = build_vehicle_uptime(df_full, start, end)
     dates_desc = _dates_desc(start, end)
-    content = build_uptime_workbook(vehicles, dates_desc, mode)  # type: ignore[arg-type]
+    content = build_uptime_workbook(vehicles, dates_desc)
 
-    mode_slug = "running-status" if mode == "general" else "device-status"
-    filename = f"vehicle-uptime-{mode_slug}-{start.isoformat()}-{end.isoformat()}.xlsx"
+    filename = f"vehicle-uptime-{start.isoformat()}-{end.isoformat()}.xlsx"
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

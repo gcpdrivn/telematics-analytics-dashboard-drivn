@@ -1,23 +1,17 @@
-"""Per-vehicle, day-by-day uptime classification, filling telemetry gaps via
-odometer-delta inference. Each day gets two independent readings: a running
-status (did the vehicle move -- ran / did not run / not sure) and, for gap
-days, whether the device itself looks like it was working.
+"""Per-vehicle, day-by-day uptime classification (ran / did not run / not
+sure), filling telemetry gaps via odometer-delta inference.
 
 Classification rules (see /home/yogesh/.claude/plans/wobbly-cooking-rain.md):
 - A day with a reported row is unambiguous: Distance > 0 -> ran, else did not run.
 - A day with no reported row (a gap in the plate's full history, not just the
   display window) is resolved by comparing the Closing Odometer just before
   the gap to the Opening Odometer just after it:
-    - 1-day gap, odometers differ  -> ran, but the device missed a signal
-      (running: ran; device: not working)
+    - 1-day gap, odometers differ  -> ran (inferred)
     - 1-day gap, odometers match   -> did not run (inferred)
     - >1-day gap, odometers match  -> did not run for every day in the gap
-    - >1-day gap, odometers differ -> ran, but the device missed signal for
-      the whole gap (running: ran; device: not working)
+    - >1-day gap, odometers differ -> cannot be determined (not sure)
     - gap has no later reported row at all (still ongoing, relative to that
-      vehicle's own most recent record) -> no odometer reference to compare
-      against, so neither the running status nor the device status can be
-      confirmed (running: not sure; device: not sure)
+      vehicle's own most recent record) -> did not run
 - A day before the vehicle's onboarding date is excluded from the uptime
   denominator entirely (not onboarded yet), not counted as not-sure. Onboarding
   date is dim_vehicle.device_installation_date when it's on file, falling back
@@ -43,8 +37,8 @@ STATUS_INFO: dict[str, dict] = {
     },
     "RAN_INFERRED": {
         "general": "RAN",
-        "color": "#f08c00",
-        "label": "Running status: Ran · Device status: Not working (1-day gap, but the odometer confirms the vehicle ran)",
+        "color": "#74c69d",
+        "label": "Ran (inferred from odometer across a gap)",
     },
     "NOT_RUN_CONFIRMED": {
         "general": "NOT_RUN",
@@ -62,14 +56,14 @@ STATUS_INFO: dict[str, dict] = {
         "label": "Did not run (multi-day gap, odometer unchanged)",
     },
     "NOT_RUN_ONGOING": {
-        "general": "NOT_SURE",
-        "color": "#f1c40f",
-        "label": "Running status: Not sure · Device status: Not sure (gap still ongoing, no odometer reference since)",
+        "general": "NOT_RUN",
+        "color": "#c2255c",
+        "label": "Did not run (gap still ongoing, no report since)",
     },
     "INDETERMINATE": {
-        "general": "RAN",
-        "color": "#e8590c",
-        "label": "Running status: Ran · Device status: Not working (multi-day gap, but the odometer confirms the vehicle ran)",
+        "general": "NOT_SURE",
+        "color": "#f1c40f",
+        "label": "Not sure (multi-day gap, odometer changed)",
     },
     "NO_DATA": {
         "general": "NO_DATA",
@@ -86,12 +80,17 @@ GENERAL_LABELS = {
     "NO_DATA": "Not onboarded yet",
 }
 
+_DETAILED_ORDER = [
+    "RAN_CONFIRMED",
+    "RAN_INFERRED",
+    "NOT_RUN_CONFIRMED",
+    "NOT_RUN_INFERRED_SINGLE",
+    "NOT_RUN_INFERRED_MULTI",
+    "NOT_RUN_ONGOING",
+    "INDETERMINATE",
+    "NO_DATA",
+]
 _GENERAL_ORDER = ["RAN", "NOT_RUN", "NOT_SURE", "NO_DATA"]
-
-# Only the detailed statuses where the device itself looks broken or
-# ambiguous get a legend entry -- everywhere else the device is presumed
-# fine, so those cells are left uncolored/unlabeled in the device status view.
-_DEVICE_FLAGGED_ORDER = ["RAN_INFERRED", "NOT_RUN_ONGOING", "INDETERMINATE"]
 
 LEGEND_GENERAL = [
     {"index": i, "status": k, "label": GENERAL_LABELS[k], "color": GENERAL_COLORS[k]}
@@ -99,11 +98,44 @@ LEGEND_GENERAL = [
 ]
 LEGEND_DETAILED = [
     {"index": i, "status": k, "label": STATUS_INFO[k]["label"], "color": STATUS_INFO[k]["color"]}
-    for i, k in enumerate(_DEVICE_FLAGGED_ORDER, start=1)
+    for i, k in enumerate(_DETAILED_ORDER, start=1)
 ]
 GENERAL_INDEX = {item["status"]: item["index"] for item in LEGEND_GENERAL}
 DETAILED_INDEX = {item["status"]: item["index"] for item in LEGEND_DETAILED}
-DETAILED_COLORS = {item["status"]: item["color"] for item in LEGEND_DETAILED}
+
+# Calendar-facing view: the 8 detailed statuses collapsed into 4 buckets
+# (detailed index -> bucket): 1 -> RUNNING_STABLE, {2, 7} -> RUNNING_UNSTABLE,
+# {3, 4, 5, 6} -> STOPPED_STABLE, 8 -> NOT_ONBOARDED. RUNNING_STABLE is the
+# expected/default day so it carries no fill; NOT_ONBOARDED keeps NO_DATA's
+# original grey.
+_COMBINED_ORDER = ["RUNNING_STABLE", "RUNNING_UNSTABLE", "STOPPED_STABLE", "NOT_ONBOARDED"]
+COMBINED_LABELS = {
+    "RUNNING_STABLE": "Running, stable",
+    "RUNNING_UNSTABLE": "Running, unstable",
+    "STOPPED_STABLE": "Stopped, stable",
+    "NOT_ONBOARDED": "Not onboarded yet",
+}
+COMBINED_COLORS = {
+    "RUNNING_STABLE": None,
+    "RUNNING_UNSTABLE": "#f08c00",
+    "STOPPED_STABLE": "#e03131",
+    "NOT_ONBOARDED": "#adb5bd",
+}
+DETAILED_TO_COMBINED = {
+    "RAN_CONFIRMED": "RUNNING_STABLE",
+    "RAN_INFERRED": "RUNNING_UNSTABLE",
+    "NOT_RUN_CONFIRMED": "STOPPED_STABLE",
+    "NOT_RUN_INFERRED_SINGLE": "STOPPED_STABLE",
+    "NOT_RUN_INFERRED_MULTI": "STOPPED_STABLE",
+    "NOT_RUN_ONGOING": "STOPPED_STABLE",
+    "INDETERMINATE": "RUNNING_UNSTABLE",
+    "NO_DATA": "NOT_ONBOARDED",
+}
+LEGEND_COMBINED = [
+    {"index": i, "status": k, "label": COMBINED_LABELS[k], "color": COMBINED_COLORS[k]}
+    for i, k in enumerate(_COMBINED_ORDER, start=1)
+]
+COMBINED_INDEX = {item["status"]: item["index"] for item in LEGEND_COMBINED}
 
 
 def _resolve_odo(row: dict | None, prefer: str, fallback: str) -> float | None:
@@ -262,6 +294,7 @@ def build_vehicle_uptime(
                     "date": d.isoformat(),
                     "general_status": general,
                     "detailed_status": detailed,
+                    "combined_status": DETAILED_TO_COMBINED[detailed],
                     "distance": info["distance"],
                     "note": info["note"],
                 }

@@ -6,20 +6,13 @@ from __future__ import annotations
 
 import datetime as dt
 import io
-from typing import Literal
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from backend.uptime import (
-    DETAILED_COLORS,
-    GENERAL_COLORS,
-    GENERAL_INDEX,
-    LEGEND_DETAILED,
-    LEGEND_GENERAL,
-)
+from backend.uptime import COMBINED_COLORS, COMBINED_INDEX, LEGEND_COMBINED
 
 FIXED_HEADERS = ["Vehicle Number", "Vehicle Type", "Vehicle Model", "Customer Name", "Uptime %"]
 
@@ -46,37 +39,27 @@ def _pct_color(pct: float | None) -> str:
     return "FFE03131"
 
 
-def _add_legend_sheet(wb: Workbook, mode: str) -> None:
+def _add_legend_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("Legend")
     ws.append(["Index", "Color", "Status", "Meaning"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    legend = LEGEND_GENERAL if mode == "general" else LEGEND_DETAILED
-    for r, item in enumerate(legend, start=2):
+    for r, item in enumerate(LEGEND_COMBINED, start=2):
         idx_cell = ws.cell(row=r, column=1, value=item["index"])
         idx_cell.alignment = Alignment(horizontal="center")
         idx_cell.font = Font(bold=True)
         swatch = ws.cell(row=r, column=2, value="")
-        swatch.fill = _fill(item["color"])
+        if item["color"]:
+            swatch.fill = _fill(item["color"])
         ws.cell(row=r, column=3, value=item["status"])
         ws.cell(row=r, column=4, value=item["label"])
     ws.column_dimensions["A"].width = 8
     ws.column_dimensions["B"].width = 10
-    ws.column_dimensions["C"].width = 28
-    ws.column_dimensions["D"].width = 55
-
-    if mode == "detailed":
-        note_row = len(legend) + 3
-        ws.cell(
-            row=note_row,
-            column=1,
-            value="Blank day cells have no device-side issue (device presumed working).",
-        ).font = Font(italic=True)
+    ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 40
 
 
-def build_uptime_workbook(
-    vehicles: list[dict], dates_desc: list[str], mode: Literal["general", "detailed"]
-) -> bytes:
+def build_uptime_workbook(vehicles: list[dict], dates_desc: list[str]) -> bytes:
     """dates_desc: ISO date strings, latest first (matches the column order
     the user asked for). vehicles: build_vehicle_uptime() output."""
     wb = Workbook()
@@ -88,12 +71,7 @@ def build_uptime_workbook(
     for cell in ws[1]:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-    header_note = (
-        "Each day cell shows the legend index for its status -- see the Legend sheet."
-        if mode == "general"
-        else "Colored day cells flag a device-side issue -- see the Legend sheet. Blank cells have no device issue."
-    )
-    ws["A1"].comment = Comment(header_note, "Drivn Uptime Report")
+    ws["A1"].comment = Comment("Each day cell shows the legend index for its status -- see the Legend sheet.", "Drivn Uptime Report")
 
     for r, v in enumerate(vehicles, start=2):
         ws.cell(row=r, column=1, value=v["vehicle_number"])
@@ -110,22 +88,17 @@ def build_uptime_workbook(
             info = by_date.get(d)
             if info is None:
                 continue
-            status = info["general_status"] if mode == "general" else info["detailed_status"]
-            if mode == "general":
-                color, index = GENERAL_COLORS[status], GENERAL_INDEX[status]
-            else:
-                # Only the device-flagged statuses (see LEGEND_DETAILED) get a
-                # fill here -- everything else has no device-side issue, so
-                # the cell is left blank in this view. With just 3 flagged
-                # categories the color alone is enough to tell them apart, so
-                # no index number is written into the cell either.
-                color, index = DETAILED_COLORS.get(status), None
+            status = info["combined_status"]
+            color = COMBINED_COLORS[status]
+            index = COMBINED_INDEX[status]
             cell = ws.cell(row=r, column=c, value=index)
-            if color is not None:
+            if color:
                 cell.fill = _fill(color)
                 cell.font = Font(bold=True, color=_contrast_text(color))
+            else:
+                cell.font = Font(bold=True)
             cell.alignment = Alignment(horizontal="center")
-            if mode == "detailed" and info.get("note"):
+            if info.get("note"):
                 cell.comment = Comment(info["note"], "Drivn Uptime Report")
 
     ws.freeze_panes = "F2"
@@ -137,7 +110,7 @@ def build_uptime_workbook(
     for c in range(6, 6 + len(dates_desc)):
         ws.column_dimensions[get_column_letter(c)].width = 7
 
-    _add_legend_sheet(wb, mode)
+    _add_legend_sheet(wb)
 
     buf = io.BytesIO()
     wb.save(buf)

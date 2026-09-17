@@ -160,8 +160,6 @@ def run(settings: Settings) -> None:
     # filled in on the Fleetx side (and vehicles not yet plated at all --
     # chassis numbers, VINs -- are never discovered here in the first
     # place); both are skipped rather than guessed.
-    new_customer_oems: dict[str, list[str]] = {}
-    new_customer_names: set[str] = set()
     if settings.fleetx_vehicle_map_file.exists():
         known_plates = {r["base_license_plate"] for r in vehicle_rows}
         discovered = fleetx_vehicle_map.discover_new_vehicles(
@@ -187,10 +185,6 @@ def run(settings: Settings) -> None:
                 "device_installation_date": None,
             }
             onboarded += 1
-            if customer_name not in _KNOWN_CUSTOMER_NAMES:
-                new_customer_names.add(customer_name)
-                if oem:
-                    new_customer_oems.setdefault(customer_name, []).append(oem)
         logger.info("Onboarded %d new vehicle(s) from the uploader file.", onboarded)
 
     missing_plates = [
@@ -225,6 +219,32 @@ def run(settings: Settings) -> None:
                     plate, override_id, fleetx_id_by_plate[plate],
                 )
                 fleetx_id_by_plate[plate] = override_id
+
+        # The MH02-prefix match is a proxy for "a BillionE truck we don't
+        # have a manual list for" -- it isn't actually customer-specific, so
+        # a different customer's fleet sharing the same plate series fools
+        # it. Confirmed for MH02GS5194-5198: swept into BillionE by prefix
+        # (they already had Excel history under it), but the uploader file
+        # explicitly tags them SWITCHLABS. Correct customer_name from that
+        # tag when it disagrees -- FreshBus/ZingBus are deliberate manual
+        # rosters and not touched here.
+        billione_plate_set = set(billione_plates)
+        for row in vehicle_rows:
+            plate = row["base_license_plate"]
+            if plate not in billione_plate_set:
+                continue
+            resolution = resolutions.get(plate)
+            if resolution is None or resolution.tags is None:
+                continue
+            corrected = _canonical_customer_name(resolution.tags)
+            if corrected != row["customer_name"]:
+                logger.warning(
+                    "%s: dynamically assigned to BillionE via the '%s' plate "
+                    "prefix, but the uploader file tags it '%s' -- correcting "
+                    "customer_name to '%s'.",
+                    plate, BILLIONE_PLATE_PREFIX, resolution.tags, corrected,
+                )
+                row["customer_name"] = corrected
     else:
         logger.warning(
             "Fleetx vehicle map file '%s' not found -- fleetx_id left NULL for every vehicle.",
@@ -256,14 +276,25 @@ def run(settings: Settings) -> None:
             row["vehicle_model"] = derived.get("vehicle_model")
             row["device_installation_date"] = None
 
-    new_customer_rows = [
-        {
-            "customer_name": name,
-            "oem": pd.Series(new_customer_oems[name]).mode().iloc[0] if name in new_customer_oems else None,
-            "routes_description": None,
-        }
-        for name in sorted(new_customer_names)
-    ]
+    # Collected once, here, from the final vehicle_rows -- after the
+    # BillionE-prefix correction above and the oem merge just above -- so a
+    # customer discovered either via a brand-new plate or via a corrected
+    # customer_name on an already-known plate (like SWITCHLABS) is handled
+    # the same way, from real per-vehicle oem data rather than two separate
+    # partial tracking passes.
+    new_customer_names = sorted(
+        {r["customer_name"] for r in vehicle_rows if r["customer_name"] not in _KNOWN_CUSTOMER_NAMES}
+    )
+    new_customer_rows = []
+    for name in new_customer_names:
+        oems = [r["oem"] for r in vehicle_rows if r["customer_name"] == name and r["oem"]]
+        new_customer_rows.append(
+            {
+                "customer_name": name,
+                "oem": pd.Series(oems).mode().iloc[0] if oems else None,
+                "routes_description": None,
+            }
+        )
 
     customer_df = pd.DataFrame(DIM_CUSTOMERS + new_customer_rows)
     vehicle_df = pd.DataFrame(vehicle_rows)

@@ -19,6 +19,17 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# KNOWN GAP for the Excel->Fleetx-API migration: dim_customer/dim_vehicle now
+# also carry "AVG LOGISTICS" and "SWITCHLABS" (onboarded via
+# ingestion/seed_dimensions.py from the Fleetx vehicle export), but this list
+# -- along with its independently-hardcoded duplicates in
+# routers/crosstab.py's and routers/trajectories.py's VALID_CUSTOMERS -- is
+# not updated here. clean_and_join() below drops any row whose customer
+# isn't in this list, so those two customers' vehicles would be silently
+# filtered out of every dashboard view if utilization_daily_api ever became
+# a live data_loader.py source. No live impact today (that table isn't wired
+# into data_loader.py yet), but this needs a real pass -- likely frontend
+# changes too (customer selector, chart colors) -- before any cutover.
 CUSTOMERS = ["FreshBus", "ZingBus", "BillionE"]
 
 # FreshBus/ZingBus are contractually fixed 10-bus fleets, used as the active-availability

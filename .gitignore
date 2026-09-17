@@ -10,3 +10,15 @@ OPERATIONS.md
 # Raw source reports are dropped locally, not committed.
 data/raw/**/*.xls*
 !data/raw/**/.gitkeep
+
+# Local-only reference docs -- may contain live API credentials/tokens
+# (e.g. Fleetx integration guide) that shouldn't be in this public repo.
+docs/
+
+# Fleetx API probe/exploration output -- contains live fleet, driver, and
+# location data, not sample data.
+data/api_probe/
+
+# Excel-vs-API validation reports -- contains real per-vehicle utilization
+# data, not sample data.
+data/validation/

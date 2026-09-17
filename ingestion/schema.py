@@ -96,4 +96,6 @@ DIM_VEHICLE_SCHEMA = [
     bigquery.SchemaField("vehicle_model", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("device_installation_date", "DATE", mode="NULLABLE",
                           description="Date the telematics device was physically installed in this vehicle. Manually maintained -- not derivable from telemetry."),
+    bigquery.SchemaField("fleetx_id", "INT64", mode="NULLABLE",
+                          description="Fleetx vehicleId for this plate's primary (non-DashCam) device, used to call the Fleetx API. Sourced from Vehicle_Update_uploader.xlsx via fleetx_vehicle_map.py -- NULL where the mapping is missing or ambiguous."),
 ]

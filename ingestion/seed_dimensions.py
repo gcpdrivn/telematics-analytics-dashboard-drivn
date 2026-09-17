@@ -17,7 +17,7 @@ import logging
 
 import pandas as pd
 
-from ingestion import bq_client, vehicle_master
+from ingestion import bq_client, fleetx_vehicle_map, vehicle_master
 from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,11 @@ ZINGBUS_PLATES = [
 ]
 
 BILLIONE_PLATE_PREFIX = "MH02"
+
+# DL1PD9317 has no row at all in the Fleetx uploader export -- only its
+# legacy spelling DL01PD9317 does. Confirmed same physical vehicle; share
+# DL01PD9317's resolved fleetx_id rather than leaving DL1PD9317 NULL.
+FLEETX_ID_PLATE_ALIASES = {"DL1PD9317": "DL01PD9317"}
 
 def _clubbed_vehicle_type(vehicle_types: pd.Series) -> str | None:
     """Mirrors backend/metrics.py's clubbed_vehicle_type(): the modal
@@ -74,6 +79,23 @@ DIM_CUSTOMERS = [
         "routes_description": "Rajasthan - Surat",
     },
 ]
+
+_KNOWN_CUSTOMER_NAMES = {c["customer_name"] for c in DIM_CUSTOMERS}
+
+# The uploader file's free-text 'tags' column doesn't match these customers'
+# canonical dim_customer names -- fold known spelling/casing variants into
+# the existing customer instead of creating a duplicate (e.g. a vehicle
+# tagged "BILLION ELECTRIC MOBILITY" is BillionE, not a new customer).
+_CUSTOMER_TAG_ALIASES = {
+    "FRESHBUS": "FreshBus",
+    "ZINGBUS": "ZingBus",
+    "BILLION ELECTRIC MOBILITY": "BillionE",
+    "BILLIONE": "BillionE",
+}
+
+
+def _canonical_customer_name(tag: str) -> str:
+    return _CUSTOMER_TAG_ALIASES.get(tag.upper(), tag)
 
 
 def run(settings: Settings) -> None:
@@ -126,6 +148,47 @@ def run(settings: Settings) -> None:
             settings.dim_vehicle_master_file,
         )
 
+    # New vehicles present in the Fleetx uploader export but not in any known
+    # roster -- mostly a large BillionE truck expansion plus two new
+    # customers (AVG LOGISTICS, SWITCHLABS). Onboarded now so the API
+    # pipeline covers them from day one, since they have no Excel history to
+    # backfill. A handful of otherwise-valid new plates have no customer tag
+    # filled in on the Fleetx side (and vehicles not yet plated at all --
+    # chassis numbers, VINs -- are never discovered here in the first
+    # place); both are skipped rather than guessed.
+    new_customer_oems: dict[str, list[str]] = {}
+    new_customer_names: set[str] = set()
+    if settings.fleetx_vehicle_map_file.exists():
+        known_plates = {r["base_license_plate"] for r in vehicle_rows}
+        discovered = fleetx_vehicle_map.discover_new_vehicles(
+            settings.fleetx_vehicle_map_file, known_plates
+        )
+        onboarded = 0
+        for plate, resolution in discovered.items():
+            if resolution.tags is None:
+                logger.warning(
+                    "%s: new plate found in the uploader file but has no "
+                    "customer tag -- skipped, not onboarded.",
+                    plate,
+                )
+                continue
+            customer_name = _canonical_customer_name(resolution.tags)
+            oem = vehicle_master.clean_oem(resolution.vehicle_maker)
+            vehicle_rows.append({"base_license_plate": plate, "customer_name": customer_name})
+            master_by_plate[plate] = {
+                "customer_name": customer_name,
+                "oem": oem,
+                "vehicle_type": resolution.vehicle_type,
+                "vehicle_model": resolution.vehicle_model,
+                "device_installation_date": None,
+            }
+            onboarded += 1
+            if customer_name not in _KNOWN_CUSTOMER_NAMES:
+                new_customer_names.add(customer_name)
+                if oem:
+                    new_customer_oems.setdefault(customer_name, []).append(oem)
+        logger.info("Onboarded %d new vehicle(s) from the uploader file.", onboarded)
+
     missing_plates = [
         r["base_license_plate"] for r in vehicle_rows if r["base_license_plate"] not in master_by_plate
     ]
@@ -133,7 +196,36 @@ def run(settings: Settings) -> None:
         bq_client.get_vehicle_type_model_rows(client, settings, missing_plates)
     )
 
+    # Fleetx vehicleId per plate (for calling the Fleetx API), resolved from
+    # the uploader file's per-device 'group' the same way transform.py picks
+    # OBD over DashCam rows -- see fleetx_vehicle_map.py for why Realtime
+    # Analytics' own 'merged' vehicleId can't be used for this instead.
+    fleetx_id_by_plate: dict[str, int | None] = {}
+    if settings.fleetx_vehicle_map_file.exists():
+        all_plates = [r["base_license_plate"] for r in vehicle_rows]
+        resolutions = fleetx_vehicle_map.resolve_fleetx_ids(
+            settings.fleetx_vehicle_map_file, all_plates
+        )
+        for plate, resolution in resolutions.items():
+            fleetx_id_by_plate[plate] = resolution.fleetx_id
+            if resolution.fleetx_id is None:
+                logger.warning(
+                    "%s: could not resolve a Fleetx vehicleId (%s) -- fleetx_id left NULL.",
+                    plate,
+                    resolution.reason,
+                )
+        for plate, alias in FLEETX_ID_PLATE_ALIASES.items():
+            if fleetx_id_by_plate.get(plate) is None and fleetx_id_by_plate.get(alias) is not None:
+                fleetx_id_by_plate[plate] = fleetx_id_by_plate[alias]
+                logger.info("%s: fleetx_id resolved via alias '%s'.", plate, alias)
+    else:
+        logger.warning(
+            "Fleetx vehicle map file '%s' not found -- fleetx_id left NULL for every vehicle.",
+            settings.fleetx_vehicle_map_file,
+        )
+
     for row in vehicle_rows:
+        row["fleetx_id"] = fleetx_id_by_plate.get(row["base_license_plate"])
         plate = row["base_license_plate"]
         master_row = master_by_plate.get(plate)
         if master_row is not None:
@@ -157,17 +249,29 @@ def run(settings: Settings) -> None:
             row["vehicle_model"] = derived.get("vehicle_model")
             row["device_installation_date"] = None
 
-    customer_df = pd.DataFrame(DIM_CUSTOMERS)
+    new_customer_rows = [
+        {
+            "customer_name": name,
+            "oem": pd.Series(new_customer_oems[name]).mode().iloc[0] if name in new_customer_oems else None,
+            "routes_description": None,
+        }
+        for name in sorted(new_customer_names)
+    ]
+
+    customer_df = pd.DataFrame(DIM_CUSTOMERS + new_customer_rows)
     vehicle_df = pd.DataFrame(vehicle_rows)
 
     bq_client.load_dim_customer_rows(client, settings, customer_df)
     bq_client.load_dim_vehicle_rows(client, settings, vehicle_df)
 
     logger.info(
-        "Seeded %d customer(s) and %d vehicle(s) (FreshBus: %d, ZingBus: %d, BillionE: %d)",
+        "Seeded %d customer(s) (%d new) and %d vehicle(s) "
+        "(FreshBus: %d, ZingBus: %d, BillionE: %d, other new: %d)",
         len(customer_df),
+        len(new_customer_rows),
         len(vehicle_df),
         len(FRESHBUS_PLATES),
         len(ZINGBUS_PLATES),
         len(billione_plates),
+        len(vehicle_df) - len(FRESHBUS_PLATES) - len(ZINGBUS_PLATES) - len(billione_plates),
     )

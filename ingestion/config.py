@@ -29,6 +29,7 @@ class Settings:
     bq_dataset: str
     bq_location: str
     bq_utilization_table: str
+    bq_utilization_api_table: str
     bq_ingestion_log_table: str
     bq_mileage_soc_table: str
     bq_dim_customer_table: str
@@ -36,6 +37,7 @@ class Settings:
     raw_utilization_dir: Path
     mileage_soc_file: Path
     dim_vehicle_master_file: Path
+    fleetx_vehicle_map_file: Path
 
     @property
     def dataset_ref(self) -> str:
@@ -44,6 +46,15 @@ class Settings:
     @property
     def utilization_table_ref(self) -> str:
         return f"{self.dataset_ref}.{self.bq_utilization_table}"
+
+    @property
+    def utilization_api_table_ref(self) -> str:
+        """Shadow table for the Fleetx-API-sourced pipeline (Phase 1/2 of the
+        Excel->API migration) -- same schema as utilization_daily, never
+        read by backend/, so the Excel pipeline and existing dashboard are
+        completely unaffected while the two sources are validated against
+        each other."""
+        return f"{self.dataset_ref}.{self.bq_utilization_api_table}"
 
     @property
     def ingestion_log_table_ref(self) -> str:
@@ -78,6 +89,9 @@ def load_settings() -> Settings:
         bq_utilization_table=os.environ.get(
             "BQ_UTILIZATION_TABLE", "utilization_daily"
         ),
+        bq_utilization_api_table=os.environ.get(
+            "BQ_UTILIZATION_API_TABLE", "utilization_daily_api"
+        ),
         bq_ingestion_log_table=os.environ.get(
             "BQ_INGESTION_LOG_TABLE", "ingestion_log"
         ),
@@ -94,5 +108,8 @@ def load_settings() -> Settings:
         ),
         dim_vehicle_master_file=_resolve_path(
             "DIM_VEHICLE_MASTER_FILE", "data/raw/dim_vehicle_master.xlsx"
+        ),
+        fleetx_vehicle_map_file=_resolve_path(
+            "FLEETX_VEHICLE_MAP_FILE", "data/raw/Vehicle_Update_uploader.xlsx"
         ),
     )

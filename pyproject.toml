@@ -13,12 +13,16 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "requests>=2.32.0",
 ]
 
 [project.scripts]
 ingest-utilization = "ingestion.cli:main"
 ingest-mileage-soc = "ingestion.cli:main_mileage"
 seed-dimensions = "ingestion.cli:main_seed_dimensions"
+explore-fleetx-api = "ingestion.api_explore:main"
+ingest-utilization-api = "ingestion.cli:main_ingest_api"
+validate-api-pipeline = "ingestion.cli:main_validate_api"
 
 [build-system]
 requires = ["hatchling"]

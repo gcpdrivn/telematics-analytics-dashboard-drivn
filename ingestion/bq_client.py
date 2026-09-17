@@ -36,6 +36,18 @@ def ensure_utilization_table(client: bigquery.Client, settings: Settings) -> Non
     client.create_table(table, exists_ok=True)
 
 
+def ensure_utilization_api_table(client: bigquery.Client, settings: Settings) -> None:
+    """Shadow table for the Fleetx-API pipeline -- same UTILIZATION_SCHEMA as
+    utilization_daily, so the two can be compared/diffed column-for-column
+    during validation."""
+    table = bigquery.Table(settings.utilization_api_table_ref, schema=UTILIZATION_SCHEMA)
+    table.time_partitioning = bigquery.TimePartitioning(
+        type_=bigquery.TimePartitioningType.MONTH, field="report_date"
+    )
+    table.clustering_fields = ["base_license_plate"]
+    client.create_table(table, exists_ok=True)
+
+
 def ensure_ingestion_log_table(client: bigquery.Client, settings: Settings) -> None:
     table = bigquery.Table(
         settings.ingestion_log_table_ref, schema=INGESTION_LOG_SCHEMA
@@ -118,6 +130,69 @@ def load_mileage_soc_rows(
         df, settings.mileage_soc_table_ref, job_config=job_config
     )
     job.result()
+
+
+def load_utilization_api_rows(
+    client: bigquery.Client, settings: Settings, df: pd.DataFrame
+) -> None:
+    """Full-refresh load: the shadow table is regenerated wholesale on every
+    run for a given date range, not appended to -- it exists purely for
+    validation against utilization_daily, not as a production stream."""
+    df = df.copy()
+    df["ingested_at"] = dt.datetime.now(dt.timezone.utc)
+
+    job_config = bigquery.LoadJobConfig(
+        schema=UTILIZATION_SCHEMA,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+    job = client.load_table_from_dataframe(
+        df, settings.utilization_api_table_ref, job_config=job_config
+    )
+    job.result()
+
+
+def get_daily_rows(
+    client: bigquery.Client,
+    settings: Settings,
+    table_ref: str,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> pd.DataFrame:
+    """Per-(plate, day) utilization rows for validating one source against
+    another. QUALIFY defends against duplicate rows for the same plate/day
+    -- possible on utilization_daily (WRITE_APPEND, if overlapping Excel
+    reports were ever loaded); utilization_daily_api is WRITE_TRUNCATE per
+    run so can't have them, but the same query works for both tables."""
+    query = f"""
+        SELECT base_license_plate, report_date, distance_km, running_time_hours,
+               opening_odometer, closing_odometer
+        FROM `{table_ref}`
+        WHERE report_date BETWEEN @start_date AND @end_date
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY base_license_plate, report_date ORDER BY ingested_at DESC
+        ) = 1
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        ]
+    )
+    return client.query(query, job_config=job_config).result().to_dataframe()
+
+
+def get_vehicle_fleetx_ids(
+    client: bigquery.Client, settings: Settings
+) -> list[tuple[str, int]]:
+    """(base_license_plate, fleetx_id) pairs for every dim_vehicle row that
+    has a resolved fleetx_id -- the vehicles the API pipeline can pull."""
+    query = f"""
+        SELECT base_license_plate, fleetx_id
+        FROM `{settings.dim_vehicle_table_ref}`
+        WHERE fleetx_id IS NOT NULL
+    """
+    rows = client.query(query).result()
+    return [(row.base_license_plate, row.fleetx_id) for row in rows]
 
 
 def get_distinct_plates_by_prefix(

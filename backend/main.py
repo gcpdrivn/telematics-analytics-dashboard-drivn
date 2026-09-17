@@ -34,7 +34,7 @@ app.include_router(uptime.router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "utilization_source": data_loader.UTILIZATION_SOURCE}
 
 
 @app.post("/api/admin/refresh-cache")

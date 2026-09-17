@@ -47,6 +47,21 @@ _UTILIZATION_RENAMES = {
 
 CACHE_TTL_SECONDS = float(os.environ.get("BACKEND_CACHE_TTL_SECONDS", "300"))
 
+# Which utilization table the dashboard reads: "excel" (utilization_daily,
+# the default -- what's been live all along) or "api" (utilization_daily_api,
+# the Fleetx-API-sourced shadow table from the Excel->API migration). Both
+# share UTILIZATION_SCHEMA exactly, so switching is just picking a table --
+# no other backend code needs to change. Not a per-request toggle: pick one,
+# restart the service (Cloud Run picks up the new env var on redeploy), and
+# the source in use is visible at GET /api/health.
+_VALID_UTILIZATION_SOURCES = {"excel", "api"}
+UTILIZATION_SOURCE = os.environ.get("UTILIZATION_SOURCE", "excel").strip().lower()
+if UTILIZATION_SOURCE not in _VALID_UTILIZATION_SOURCES:
+    raise RuntimeError(
+        f"UTILIZATION_SOURCE={UTILIZATION_SOURCE!r} is invalid -- must be one of "
+        f"{sorted(_VALID_UTILIZATION_SOURCES)}."
+    )
+
 
 class _TTLCache:
     def __init__(self, ttl_seconds: float):
@@ -122,7 +137,12 @@ def _load_all() -> dict[str, pd.DataFrame]:
     settings = get_settings()
     client = get_client()
 
-    raw_df = _query_df(client, f"SELECT * FROM `{settings.utilization_table_ref}`")
+    utilization_table_ref = (
+        settings.utilization_api_table_ref
+        if UTILIZATION_SOURCE == "api"
+        else settings.utilization_table_ref
+    )
+    raw_df = _query_df(client, f"SELECT * FROM `{utilization_table_ref}`")
     raw_df = raw_df.rename(columns=_UTILIZATION_RENAMES)
 
     dim_vehicle = _query_df(client, f"SELECT * FROM `{settings.dim_vehicle_table_ref}`")

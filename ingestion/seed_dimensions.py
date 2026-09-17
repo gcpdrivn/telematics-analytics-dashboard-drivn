@@ -28,17 +28,21 @@ FRESHBUS_PLATES = [
 ]
 
 ZINGBUS_PLATES = [
-    "DL1PD9284", "DL1PD9369", "DL1PD9317", "DL1PD9309", "DL1PD8669",
+    "DL1PD9284", "DL1PD9369", "DL1PD9309", "DL1PD8669",
     "DL1PD8652", "HR55AY7626", "HR55AY9237", "DL1PD8523", "DL1PD8509",
-    "DL01PD9317",  # legacy identifier some raw records use for DL1PD9317
+    "DL01PD9317",
 ]
 
 BILLIONE_PLATE_PREFIX = "MH02"
 
-# DL1PD9317 has no row at all in the Fleetx uploader export -- only its
-# legacy spelling DL01PD9317 does. Confirmed same physical vehicle; share
-# DL01PD9317's resolved fleetx_id rather than leaving DL1PD9317 NULL.
-FLEETX_ID_PLATE_ALIASES = {"DL1PD9317": "DL01PD9317"}
+# DL1PD9284's uploader-labeled 'OBD' device (2494780) is confirmed dead --
+# zero trips over a 46-day live check, while its API/AIS140 device
+# (2543818) is active. The label is stale, not the resolution logic, so
+# this overrides the file-based pick rather than fixing fleetx_vehicle_map's
+# general rule. api_pipeline.py also has a live fallback for this class of
+# issue on any *other* vehicle; this fixes the known case at the source so
+# every run doesn't pay for the extra live probe.
+FLEETX_ID_MANUAL_OVERRIDES = {"DL1PD9284": 2543818}
 
 def _clubbed_vehicle_type(vehicle_types: pd.Series) -> str | None:
     """Mirrors backend/metrics.py's clubbed_vehicle_type(): the modal
@@ -214,10 +218,13 @@ def run(settings: Settings) -> None:
                     plate,
                     resolution.reason,
                 )
-        for plate, alias in FLEETX_ID_PLATE_ALIASES.items():
-            if fleetx_id_by_plate.get(plate) is None and fleetx_id_by_plate.get(alias) is not None:
-                fleetx_id_by_plate[plate] = fleetx_id_by_plate[alias]
-                logger.info("%s: fleetx_id resolved via alias '%s'.", plate, alias)
+        for plate, override_id in FLEETX_ID_MANUAL_OVERRIDES.items():
+            if plate in fleetx_id_by_plate and fleetx_id_by_plate[plate] != override_id:
+                logger.info(
+                    "%s: fleetx_id manually overridden to %d (was %s).",
+                    plate, override_id, fleetx_id_by_plate[plate],
+                )
+                fleetx_id_by_plate[plate] = override_id
     else:
         logger.warning(
             "Fleetx vehicle map file '%s' not found -- fleetx_id left NULL for every vehicle.",

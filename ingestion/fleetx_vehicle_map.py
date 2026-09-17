@@ -130,6 +130,36 @@ def resolve_fleetx_ids(path: Path, plates: list[str]) -> dict[str, Resolution]:
     return results
 
 
+def non_dashcam_candidate_ids(path: Path, plate: str) -> list[int]:
+    """All non-DashCam device ids registered for this plate, in the same
+    preference order resolve_fleetx_ids() uses (OBD-labeled first, then
+    OBD-in-name, then everything else), for use as live fallbacks when the
+    resolved primary id turns out to be dead -- e.g. a stale 'OBD' label on
+    hardware that's since failed (found for DL1PD9284: its labeled OBD
+    device returns zero trips, while its DashCam and API devices are both
+    active). DashCam is never included, even as a last resort -- the Excel
+    pipeline already treats DashCam telemetry as unreliable (transform.py's
+    `Group Name != 'DashCam'` filter)."""
+    df = _load(path)
+    rows = df[df["base_plate"] == plate]
+    if rows.empty:
+        return []
+
+    is_cam = rows["number"].astype(str).str.contains("CAM") | (rows["group"] == "DashCam")
+    candidates = rows[~is_cam]
+
+    ordered_ids: list[int] = []
+    for subset in (
+        candidates[candidates["group"] == "OBD"],
+        candidates[candidates["number"].astype(str).str.contains("OBD")],
+        candidates,
+    ):
+        for fleetx_id in subset["id"].astype(int):
+            if fleetx_id not in ordered_ids:
+                ordered_ids.append(fleetx_id)
+    return ordered_ids
+
+
 def discover_new_vehicles(path: Path, known_plates: set[str]) -> dict[str, Resolution]:
     """Finds plates in the uploader file that aren't in `known_plates`,
     excluding anything that doesn't look like a real registration plate

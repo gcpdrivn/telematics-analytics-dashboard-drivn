@@ -22,10 +22,13 @@ import pandas as pd
 CUSTOMERS = ["FreshBus", "ZingBus", "BillionE"]
 
 # FreshBus/ZingBus are contractually fixed 10-bus fleets, used as the active-availability
-# timeline's fixed denominator. Deliberately NOT derived from dim_vehicle row counts: that
-# table carries a legacy plate alias for ZingBus (DL01PD9317 -> DL1PD9317) that would
-# otherwise overcount it as 11. BillionE has no such fixed size -- it's a growing fleet,
-# handled dynamically via first-telemetry-date tenure below.
+# timeline's fixed denominator. Deliberately NOT derived from dim_vehicle row counts --
+# that's a business fact (the contract), not something to infer from however many rows
+# happen to be in the table (dim_vehicle used to carry a duplicate ZingBus row, DL1PD9317
+# alongside the real DL01PD9317, which would have overcounted it as 11; fixed in
+# seed_dimensions.py, but the fleet size is still deliberately hardcoded rather than
+# derived). BillionE has no such fixed size -- it's a growing fleet, handled dynamically
+# via first-telemetry-date tenure below.
 FIXED_FLEET_SIZE = {"FreshBus": 10, "ZingBus": 10}
 
 DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]

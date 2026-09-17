@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import pandas as pd
 import requests
 
-from ingestion import api_transform, bq_client, fleetx_client
+from ingestion import api_transform, bq_client, fleetx_client, fleetx_vehicle_map
 from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,22 @@ class VehicleResult:
 
 def _to_epoch_ms(d: dt.date) -> int:
     return int(dt.datetime.combine(d, dt.time.min).timestamp() * 1000)
+
+
+def _fetch_trips_relogin_once(
+    token: str, fleetx_id: int, from_ms: int, to_ms: int
+) -> tuple[list[dict], str]:
+    """Calls get_trips, re-authenticating once and retrying if the token
+    expired mid-run (common for a large fleet's full pull). Lets any other
+    RequestException propagate to the caller."""
+    try:
+        return fleetx_client.get_trips(token, fleetx_id, from_ms, to_ms), token
+    except requests.HTTPError as exc:
+        if exc.response is None or exc.response.status_code != 401:
+            raise
+        logger.info("Access token expired mid-run, re-authenticating.")
+        token = fleetx_client.login()
+        return fleetx_client.get_trips(token, fleetx_id, from_ms, to_ms), token
 
 
 def run(
@@ -59,30 +75,42 @@ def run(
 
     for plate, fleetx_id in vehicles:
         try:
-            trips = fleetx_client.get_trips(token, fleetx_id, from_ms, to_ms)
-        except requests.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code == 401:
-                # Token can expire mid-run for a large fleet -- relogin once.
-                logger.info("Access token expired mid-run, re-authenticating.")
-                token = fleetx_client.login()
-                try:
-                    trips = fleetx_client.get_trips(token, fleetx_id, from_ms, to_ms)
-                except requests.RequestException as retry_exc:
-                    logger.exception("Failed to fetch trips for %s after re-login", plate)
-                    results.append(
-                        VehicleResult(plate, fleetx_id, "failed", error=str(retry_exc))
-                    )
-                    continue
-            else:
-                logger.exception("Failed to fetch trips for %s", plate)
-                results.append(VehicleResult(plate, fleetx_id, "failed", error=str(exc)))
-                continue
+            trips, token = _fetch_trips_relogin_once(token, fleetx_id, from_ms, to_ms)
         except requests.RequestException as exc:
             logger.exception("Failed to fetch trips for %s", plate)
             results.append(VehicleResult(plate, fleetx_id, "failed", error=str(exc)))
             continue
 
-        daily_df = api_transform.aggregate_trips_to_daily(trips, plate, fleetx_id)
+        # A resolved fleetx_id with zero trips over the whole range can mean
+        # the device is genuinely idle -- but it can also mean a stale
+        # admin-side device label (found for DL1PD9284: its labeled 'OBD'
+        # device is dead, while its API/AIS140 device is active). Try the
+        # vehicle's other known non-DashCam devices before giving up.
+        used_fleetx_id = fleetx_id
+        if not trips and settings.fleetx_vehicle_map_file.exists():
+            candidates = fleetx_vehicle_map.non_dashcam_candidate_ids(
+                settings.fleetx_vehicle_map_file, plate
+            )
+            for alt_id in candidates:
+                if alt_id == fleetx_id:
+                    continue
+                try:
+                    alt_trips, token = _fetch_trips_relogin_once(token, alt_id, from_ms, to_ms)
+                except requests.RequestException:
+                    continue
+                if alt_trips:
+                    logger.warning(
+                        "%s: primary fleetx_id=%d returned 0 trips -- falling back to "
+                        "fleetx_id=%d for this run, which has data. Fix dim_vehicle.fleetx_id "
+                        "at the source (correct the device grouping and re-run "
+                        "seed-dimensions) so future runs don't need this fallback.",
+                        plate, fleetx_id, alt_id,
+                    )
+                    trips = alt_trips
+                    used_fleetx_id = alt_id
+                    break
+
+        daily_df = api_transform.aggregate_trips_to_daily(trips, plate, used_fleetx_id)
         if daily_df.empty:
             results.append(VehicleResult(plate, fleetx_id, "no_trips"))
             continue

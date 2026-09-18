@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 # one figure is untrustworthy.
 MAX_PLAUSIBLE_DAILY_DISTANCE_KM = 1500.0
 
+# A calendar day cannot contain more than 24 hours of running time. Caught
+# separately from the distance cap above -- a "zombie" trip (sDate == eDate
+# but a `duration` implying it was open for days/weeks) usually reports
+# near-zero distance, so it slips past the distance cap while still
+# corrupting running_time_hours. The two are independent: nulling one
+# doesn't imply the other is bad, so each is checked and nulled on its own.
+MAX_PLAUSIBLE_DAILY_HOURS = 24.0
+
 FINAL_COLUMN_ORDER = [
     "license_plate_raw",
     "base_license_plate",
@@ -172,5 +180,18 @@ def aggregate_trips_to_daily(
                 bad_row["distance_km"], MAX_PLAUSIBLE_DAILY_DISTANCE_KM,
             )
         result.loc[implausible, "distance_km"] = pd.NA
+
+    implausible_hours = result["running_time_hours"] > MAX_PLAUSIBLE_DAILY_HOURS
+    if implausible_hours.any():
+        for _, bad_row in result[implausible_hours].iterrows():
+            logger.warning(
+                "%s on %s: running_time_hours=%.1f exceeds the %.0fh/day physical limit "
+                "-- nulled out. Either a zombie trip (duration inconsistent with its own "
+                "sDate/eDate, usually >>24h) or several midnight-crossing trips all "
+                "attributed to this end date (usually just over 24h).",
+                bad_row["base_license_plate"], bad_row["report_date"],
+                bad_row["running_time_hours"], MAX_PLAUSIBLE_DAILY_HOURS,
+            )
+        result.loc[implausible_hours, "running_time_hours"] = pd.NA
 
     return result

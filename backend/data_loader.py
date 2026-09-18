@@ -86,6 +86,7 @@ class _TTLCache:
 
 _cache = _TTLCache(CACHE_TTL_SECONDS)
 _derived_cache = _TTLCache(CACHE_TTL_SECONDS)
+_crosstab_cache = _TTLCache(CACHE_TTL_SECONDS)
 _client: bigquery.Client | None = None
 _settings: Settings | None = None
 
@@ -192,23 +193,43 @@ def refresh() -> None:
     """Force the next request to re-query BigQuery and recompute derived data."""
     _cache.invalidate()
     _derived_cache.invalidate()
+    _crosstab_cache.invalidate()
+
+
+def _clean_df(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
+    df_clean = metrics.clean_and_join(
+        tables["raw_utilization"], tables["dim_vehicle"], tables["dim_customer"]
+    )
+    mileage_valid = metrics.valid_mileage_map(tables["mileage"])
+    return df_clean, mileage_valid
+
+
+def _filter_by_date(
+    df_clean: pd.DataFrame, start_date: dt.date | None, end_date: dt.date | None
+) -> pd.DataFrame:
+    if start_date is not None:
+        df_clean = df_clean[df_clean["Report Date"] >= pd.Timestamp(start_date)]
+    if end_date is not None:
+        df_clean = df_clean[df_clean["Report Date"] <= pd.Timestamp(end_date)]
+    return df_clean
 
 
 def get_clean_context(
     start_date: dt.date | None = None, end_date: dt.date | None = None
 ) -> dict:
-    """Everything routers need: the cleaned/deduped/customer-filtered
-    utilization frame, the dimension tables, the mileage lookup, the
-    per-vehicle aggregation (active_stats), and the number of distinct report
-    dates in scope (used as the KPI daily-average denominator instead of a
-    literal 30).
+    """Everything routers need except the crosstab matrix (see
+    get_crosstab_matrix): the cleaned/deduped/customer-filtered utilization
+    frame, the dimension tables, the mileage lookup, the per-vehicle
+    aggregation (active_stats), and the number of distinct report dates in
+    scope (used as the KPI daily-average denominator instead of a literal
+    30).
 
     The unfiltered case (no start/end date -- the only case the frontend
     actually uses today) is itself cached: clean_and_join + build_active_stats
-    involve several groupby().apply() calls that are ~0.4s combined, and every
-    endpoint call was redoing them from scratch even when nothing had
-    changed. A date-filtered request always recomputes, since tenure/active
-    days depend on exactly which rows are in scope."""
+    involve several groupby().apply() calls, and every endpoint call was
+    redoing them from scratch even when nothing had changed. A date-filtered
+    request always recomputes, since tenure/active days depend on exactly
+    which rows are in scope."""
     tables = get_tables()
 
     if start_date is None and end_date is None:
@@ -216,22 +237,15 @@ def get_clean_context(
         df_clean = derived["df_clean"]
         mileage_valid = derived["mileage_valid"]
         active_stats = derived["active_stats"]
-        crosstab_matrix = derived["crosstab_matrix"]
         observation_days = derived["observation_days"]
     else:
-        derived = _build_derived(tables)
-        df_clean = derived["df_clean"]
-        if start_date is not None:
-            df_clean = df_clean[df_clean["Report Date"] >= pd.Timestamp(start_date)]
-        if end_date is not None:
-            df_clean = df_clean[df_clean["Report Date"] <= pd.Timestamp(end_date)]
-        mileage_valid = derived["mileage_valid"]
+        df_clean, mileage_valid = _clean_df(tables)
+        df_clean = _filter_by_date(df_clean, start_date, end_date)
         # Recomputed for the filtered window, not reused from the unfiltered
         # `derived` bundle -- Bus tenure (build_active_stats) depends on this
         # being the size of the window actually in scope here.
         observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
         active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
-        crosstab_matrix = metrics.build_crosstab_matrix(df_clean)
 
     return {
         "df_clean": df_clean,
@@ -239,26 +253,35 @@ def get_clean_context(
         "dim_vehicle": tables["dim_vehicle"],
         "mileage_valid": mileage_valid,
         "active_stats": active_stats,
-        "crosstab_matrix": crosstab_matrix,
         "observation_days": observation_days,
     }
 
 
+def get_crosstab_matrix(
+    start_date: dt.date | None = None, end_date: dt.date | None = None
+) -> dict:
+    """Separate from get_clean_context: build_crosstab_matrix is the one
+    expensive, crosstab-router-only computation in this module (an O(dates x
+    vehicles) per-row loop) -- every other endpoint (kpi-summary, customers,
+    vehicles, trajectories, uptime) never touches its result, so it doesn't
+    belong in the shared context every one of them pays for."""
+    tables = get_tables()
+    if start_date is None and end_date is None:
+        return _crosstab_cache.get(
+            lambda: metrics.build_crosstab_matrix(_clean_df(tables)[0])
+        )
+    df_clean, _ = _clean_df(tables)
+    df_clean = _filter_by_date(df_clean, start_date, end_date)
+    return metrics.build_crosstab_matrix(df_clean)
+
+
 def _build_derived(tables: dict[str, pd.DataFrame]) -> dict:
-    df_clean = metrics.clean_and_join(
-        tables["raw_utilization"], tables["dim_vehicle"], tables["dim_customer"]
-    )
-    mileage_valid = metrics.valid_mileage_map(tables["mileage"])
+    df_clean, mileage_valid = _clean_df(tables)
     observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
     active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
-    # build_crosstab_matrix computes all 4 customer views (All/FreshBus/ZingBus/
-    # BillionE) in one pass regardless of which one a request asks for, so it
-    # belongs in the shared cache rather than being redone per customer filter.
-    crosstab_matrix = metrics.build_crosstab_matrix(df_clean)
     return {
         "df_clean": df_clean,
         "mileage_valid": mileage_valid,
         "active_stats": active_stats,
-        "crosstab_matrix": crosstab_matrix,
         "observation_days": observation_days,
     }

@@ -142,7 +142,18 @@ def _load_all() -> dict[str, pd.DataFrame]:
         if UTILIZATION_SOURCE == "api"
         else settings.utilization_table_ref
     )
-    raw_df = _query_df(client, f"SELECT * FROM `{utilization_table_ref}`")
+    # Today is always a partial day (the vehicle's day isn't over yet), so a
+    # KPI built from it looks like a data dip rather than what it is --
+    # excluded here, at the source query, rather than trusted to whatever
+    # date range a caller happens to pass. "Today" is IST: report_date is an
+    # IST calendar date (from Fleetx trip timestamps / Excel exports), and
+    # BigQuery's CURRENT_DATE() defaults to UTC, which would cut off up to
+    # 5.5 hours into the wrong day.
+    raw_df = _query_df(
+        client,
+        f"SELECT * FROM `{utilization_table_ref}` "
+        "WHERE report_date < CURRENT_DATE('Asia/Kolkata')",
+    )
     raw_df = raw_df.rename(columns=_UTILIZATION_RENAMES)
 
     dim_vehicle = _query_df(client, f"SELECT * FROM `{settings.dim_vehicle_table_ref}`")

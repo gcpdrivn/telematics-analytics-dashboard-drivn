@@ -8,7 +8,7 @@ from backend import data_loader, metrics
 
 router = APIRouter()
 
-VALID_CUSTOMERS = {"FreshBus", "ZingBus", "BillionE"}
+VALID_CUSTOMERS = set(metrics.CUSTOMERS)
 
 
 @router.get("/vehicle-trajectories")

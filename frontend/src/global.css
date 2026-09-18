@@ -225,7 +225,7 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .date-range-bounds { font-size: 0.7rem; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle); }
 
 /* Customer cards (ported from report.html's .customer-card) */
-.customer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-bottom: 1rem; }
+.customer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 1rem; }
 @media (max-width: 900px) { .customer-grid { grid-template-columns: 1fr; } }
 
 .customer-card {

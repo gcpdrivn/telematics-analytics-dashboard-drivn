@@ -16,31 +16,46 @@ Deliberate differences from that script (see /home/yogesh/.claude/plans/swirling
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
-# KNOWN GAP for the Excel->Fleetx-API migration: dim_customer/dim_vehicle now
-# also carry "AVG LOGISTICS" and "SWITCHLABS" (onboarded via
-# ingestion/seed_dimensions.py from the Fleetx vehicle export), but this list
-# -- along with its independently-hardcoded duplicates in
-# routers/crosstab.py's and routers/trajectories.py's VALID_CUSTOMERS -- is
-# not updated here. clean_and_join() below drops any row whose customer
-# isn't in this list, so those two customers' vehicles would be silently
-# filtered out of every dashboard view if utilization_daily_api ever became
-# a live data_loader.py source. No live impact today (that table isn't wired
-# into data_loader.py yet), but this needs a real pass -- likely frontend
-# changes too (customer selector, chart colors) -- before any cutover.
-CUSTOMERS = ["FreshBus", "ZingBus", "BillionE"]
 
-# FreshBus/ZingBus are contractually fixed 10-bus fleets, used as the active-availability
-# timeline's fixed denominator. Deliberately NOT derived from dim_vehicle row counts --
-# that's a business fact (the contract), not something to infer from however many rows
-# happen to be in the table (dim_vehicle used to carry a duplicate ZingBus row, DL1PD9317
-# alongside the real DL01PD9317, which would have overcounted it as 11; fixed in
-# seed_dimensions.py, but the fleet size is still deliberately hardcoded rather than
-# derived). BillionE has no such fixed size -- it's a growing fleet, handled dynamically
-# via first-telemetry-date tenure below.
-FIXED_FLEET_SIZE = {"FreshBus": 10, "ZingBus": 10}
+@dataclass(frozen=True)
+class _CustomerConfig:
+    name: str
+    category: str  # "Bus" or "Truck"
+    # Fixed contractual fleet size, or None for a growing fleet sized dynamically
+    # from data (first-telemetry/install-date tenure -- see build_active_timeline).
+    fixed_fleet_size: int | None = None
+
+
+# Single source of truth for the dashboard's customer roster. Add a new
+# customer here -- backend/routers/crosstab.py and trajectories.py derive
+# their VALID_CUSTOMERS from CUSTOMERS below, and uptime.py already did too.
+#
+# FreshBus/ZingBus are contractually fixed 10-bus fleets, used as the active-
+# availability timeline's fixed denominator. Deliberately NOT derived from
+# dim_vehicle row counts -- that's a business fact (the contract), not
+# something to infer from however many rows happen to be in the table
+# (dim_vehicle used to carry a duplicate ZingBus row, DL1PD9317 alongside the
+# real DL01PD9317, which would have overcounted it as 11; fixed in
+# seed_dimensions.py, but the fleet size is still deliberately hardcoded
+# rather than derived). BillionE, AVG LOGISTICS and SWITCHLABS have no such
+# fixed size -- they're growing truck fleets, handled dynamically via
+# first-telemetry-date tenure below.
+_CUSTOMER_REGISTRY = [
+    _CustomerConfig("FreshBus", "Bus", fixed_fleet_size=10),
+    _CustomerConfig("ZingBus", "Bus", fixed_fleet_size=10),
+    _CustomerConfig("BillionE", "Truck"),
+    _CustomerConfig("AVG LOGISTICS", "Truck"),
+    _CustomerConfig("SWITCHLABS", "Truck"),
+]
+
+CUSTOMERS = [c.name for c in _CUSTOMER_REGISTRY]
+FIXED_FLEET_SIZE = {c.name: c.fixed_fleet_size for c in _CUSTOMER_REGISTRY if c.fixed_fleet_size is not None}
+TRUCK_CUSTOMERS = {c.name for c in _CUSTOMER_REGISTRY if c.category == "Truck"}
 
 DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -355,19 +370,24 @@ def _fleet_breakdown_and_prior(
     def counts_str(customers: list[str]) -> str:
         return ", ".join(f"{c}: {int(counts.get(c, 0))}" for c in customers)
 
+    bus_customers = [c for c in CUSTOMERS if c not in TRUCK_CUSTOMERS]
+    truck_customers = [c for c in CUSTOMERS if c in TRUCK_CUSTOMERS]
+
     if scope_key == "Bus":
-        breakdown = f"{n_veh} Buses ({counts_str(['FreshBus', 'ZingBus'])})"
+        breakdown = f"{n_veh} Buses ({counts_str(bus_customers)})"
         prior = "100% Intercity Commercial Fleet"
     elif scope_key == "Truck":
-        breakdown = f"{n_veh} Trucks ({counts_str(['BillionE'])})"
-        route = routes.get("BillionE")
-        prior = f"{n_veh} Active Commercial Trucks" + (f" ({route} Route)" if route else "")
+        breakdown = f"{n_veh} Trucks ({counts_str(truck_customers)})"
+        present_routes = [routes[c] for c in truck_customers if counts.get(c, 0) > 0 and pd.notna(routes.get(c))]
+        prior = f"{n_veh} Active Commercial Trucks" + (
+            f" ({', '.join(present_routes)} Route)" if present_routes else ""
+        )
     else:  # 'all' or 'customers'
         n_bus = int((sub_fleet["vehicle_type"] == "Bus").sum())
         n_truck = int((sub_fleet["vehicle_type"] == "Truck").sum())
         breakdown = (
-            f"{n_bus} Buses ({counts_str(['FreshBus', 'ZingBus'])}) • "
-            f"{n_truck} Trucks ({counts_str(['BillionE'])})"
+            f"{n_bus} Buses ({counts_str(bus_customers)}) • "
+            f"{n_truck} Trucks ({counts_str(truck_customers)})"
         )
         present = [c for c in CUSTOMERS if counts.get(c, 0) > 0]
         prior = f"{n_veh} Active Commercial Assets ({', '.join(present)})"
@@ -541,10 +561,11 @@ def build_customer_profiles(active_stats: pd.DataFrame, dim_customer: pd.DataFra
             c_avg_std, c_avg_cv = 0.0, 0.0
             c_vol_tier, c_vol_class = "Yard Holding", "vol-neutral"
 
+        route = routes.get(cust)
         profiles.append(
             {
                 "customer": cust,
-                "route": routes.get(cust, "Regional Line-haul"),
+                "route": route if pd.notna(route) else "Regional Line-haul",
                 "vehicle_count": len(c_df),
                 "total_distance": c_dist,
                 "total_hours": c_hours,
@@ -605,13 +626,21 @@ def build_active_timeline(df_clean: pd.DataFrame) -> dict:
     all_dates = sorted(df_clean["Report Date"].dt.strftime("%Y-%m-%d").unique())
     first_dates_by_plate = df_clean.groupby("Base License Plate")["Report Date"].min().to_dict()
     install_dates_by_plate = df_clean.groupby("Base License Plate")["Device Installation Date"].first().to_dict()
-    billion_e_plates = df_clean[df_clean["Customer"] == "BillionE"]["Base License Plate"].unique()
+    # Customers with no fixed contractual fleet size (BillionE, AVG LOGISTICS,
+    # SWITCHLABS) get a dynamic eligible-fleet denominator instead, derived
+    # from each plate's tenure.
+    dynamic_plates_by_cust = {
+        cust: df_clean[df_clean["Customer"] == cust]["Base License Plate"].unique()
+        for cust in CUSTOMERS
+        if cust not in FIXED_FLEET_SIZE
+    }
     # Prefer the real install date over "first reported date" for deciding
-    # when a BillionE truck joined the eligible fleet -- falls back to the
+    # when a truck joined the eligible fleet -- falls back to the
     # approximation only for a plate whose install date isn't on file yet.
     eligible_since_by_plate = {
         p: install_dates_by_plate[p] if pd.notna(install_dates_by_plate.get(p)) else first_dates_by_plate[p]
-        for p in billion_e_plates
+        for plates in dynamic_plates_by_cust.values()
+        for p in plates
     }
 
     active_timeline: dict = {"dates": all_dates}
@@ -623,17 +652,18 @@ def build_active_timeline(df_clean: pd.DataFrame) -> dict:
         counts = c_df.groupby(c_df["Report Date"].dt.strftime("%Y-%m-%d"))["Base License Plate"].nunique().to_dict()
         cnt_list = [int(counts.get(d, 0)) for d in all_dates]
 
-        if cust == "BillionE":
+        if cust not in FIXED_FLEET_SIZE:
+            plates = dynamic_plates_by_cust[cust]
             denom_list = []
             pct_list = []
             for d in all_dates:
                 d_ts = pd.to_datetime(d)
-                eligible = [p for p in billion_e_plates if eligible_since_by_plate.get(p) <= d_ts]
+                eligible = [p for p in plates if eligible_since_by_plate.get(p) <= d_ts]
                 denom = len(eligible)
                 denom_list.append(denom)
                 c = counts.get(d, 0)
                 pct_list.append(round((c / denom * 100.0), 1) if denom > 0 else 0.0)
-            fleet_size_total = len(billion_e_plates)
+            fleet_size_total = len(plates)
         else:
             fixed = FIXED_FLEET_SIZE[cust]
             denom_list = [fixed] * len(all_dates)
@@ -659,7 +689,7 @@ def build_active_timeline(df_clean: pd.DataFrame) -> dict:
             for i in range(len(all_dates))
         ],
         "fleet_sizes": total_eligible_denoms,
-        "fleet_size": sum(FIXED_FLEET_SIZE.values()) + len(billion_e_plates),
+        "fleet_size": sum(FIXED_FLEET_SIZE.values()) + sum(len(p) for p in dynamic_plates_by_cust.values()),
     }
     return active_timeline
 
@@ -676,7 +706,7 @@ def build_crosstab_matrix(df_clean: pd.DataFrame) -> dict:
 
     for c in ["All"] + CUSTOMERS:
         c_df = df_clean if c == "All" else df_clean[df_clean["Customer"] == c]
-        is_truck = c == "BillionE"
+        is_truck = c in TRUCK_CUSTOMERS
         bands = TRUCK_BANDS if is_truck else BUS_BANDS
         n_bands = len(bands)
         get_idx_fn = get_truck_band_idx if is_truck else get_bus_band_idx
@@ -726,10 +756,16 @@ def build_crosstab_matrix(df_clean: pd.DataFrame) -> dict:
                 counts[idx] += 1
                 plate_str = str(row["Base License Plate"])
                 vehs[idx].append(plate_str)
+                # A Fleetx API trip session that never closes (see
+                # ingestion/api_pipeline.py) leaves a reported row with no
+                # computable Distance -- NaN, not 0. Falls back to 0.0 here
+                # like the other per-row fields below, rather than leaking a
+                # non-JSON-compliant NaN into the response.
+                row_km = round(float(row["Distance"]), 1) if pd.notna(row["Distance"]) else 0.0
                 veh_details[idx].append(
                     {
                         "p": plate_str,
-                        "km": round(float(row["Distance"]), 1),
+                        "km": row_km,
                         "hrs": round(float(row["Running Time (in hours)"]), 1)
                         if pd.notna(row["Running Time (in hours)"])
                         else 0.0,
@@ -740,7 +776,7 @@ def build_crosstab_matrix(df_clean: pd.DataFrame) -> dict:
                         "m": str(row["Vehicle Model"]) if pd.notna(row["Vehicle Model"]) else "Standard",
                     }
                 )
-                kms[idx] += round(float(row["Distance"]), 1)
+                kms[idx] += row_km
             pcts = (
                 [round((cnt / total_veh * 100.0), 1) for cnt in counts] if total_veh > 0 else [0.0] * n_bands
             )
@@ -936,7 +972,13 @@ def build_vehicle_roster(active_stats: pd.DataFrame) -> list[dict]:
                 "active_cv_pct": round(float(r["active_cv_pct"]), 1),
                 "volatility_tier": r["volatility_tier"],
                 "volatility_class": r["volatility_class"],
-                "daily_distance_history": r["daily_distance_history"],
+                # Some Fleetx API trip sessions never close (documented in
+                # ingestion/api_pipeline.py), leaving a real reported day with
+                # no computable Distance -- NaN, not 0. Emit as null rather
+                # than silently rendering it as a 0 km day.
+                "daily_distance_history": [
+                    v if pd.notna(v) else None for v in r["daily_distance_history"]
+                ],
             }
         )
     return records

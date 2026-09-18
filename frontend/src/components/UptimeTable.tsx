@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadUptimeExport, getVehicleUptime } from "../api/client"
 import type { DateRange } from "../api/client"
 import type { CrosstabCustomer, UptimeResponse, VehicleUptime } from "../api/types"
+import { ALL_CUSTOMERS } from "./CustomerCharts/colors"
 
-const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", "FreshBus", "ZingBus", "BillionE"]
+const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", ...ALL_CUSTOMERS]
 type SortKey = "vehicle_number" | "uptime_pct" | "ran_days" | "not_run_days" | "not_sure_days"
 
 function formatDateHeader(iso: string): string {

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import type { CrosstabCustomer, CrosstabResponse } from "../api/types"
+import { ALL_CUSTOMERS, TRUCK_CUSTOMERS } from "./CustomerCharts/colors"
 
 /** Hand-rolled heatmap table (not Plotly) -- ports the exact cell alpha
  * formula and click-to-lock Duty Inspector behavior found in report.html's
@@ -10,7 +11,7 @@ const BAND_RGBA = {
   bus: ["100, 116, 139", "59, 130, 246", "6, 182, 212", "92, 176, 48", "139, 92, 246"],
 }
 
-const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", "FreshBus", "ZingBus", "BillionE"]
+const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", ...ALL_CUSTOMERS]
 
 function formatShortDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number)
@@ -34,7 +35,7 @@ export function CrosstabMatrix({
   const [selected, setSelected] = useState<{ date: string; bandIdx: number } | null>(null)
   const [hover, setHover] = useState<{ date: string; bandIdx: number; x: number; y: number } | null>(null)
 
-  const isTruck = customer === "BillionE"
+  const isTruck = customer !== "All" && TRUCK_CUSTOMERS.has(customer)
   const palette = isTruck ? BAND_RGBA.truck : BAND_RGBA.bus
   const bandOrderDesc = [...data.bands.keys()].reverse()
 

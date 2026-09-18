@@ -14,13 +14,14 @@ import { DailyDistanceBar } from "../components/CustomerCharts/DailyDistanceBar"
 import { ShareDonut } from "../components/CustomerCharts/ShareDonut"
 import { ActiveTimelineChart } from "../components/CustomerCharts/ActiveTimelineChart"
 import { SeasonalityChart } from "../components/CustomerCharts/SeasonalityChart"
+import { ALL_CUSTOMERS } from "../components/CustomerCharts/colors"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
 import { UptimeTable } from "../components/UptimeTable"
 import { VehicleTrajectoryChart } from "../components/VehicleTrajectoryChart"
 import { useDateRange } from "../hooks/useDateRange"
 
-const TRAJECTORY_CUSTOMERS: CustomerName[] = ["FreshBus", "ZingBus", "BillionE"]
+const TRAJECTORY_CUSTOMERS: CustomerName[] = ALL_CUSTOMERS
 
 export function CustomersPage() {
   const [range] = useDateRange()

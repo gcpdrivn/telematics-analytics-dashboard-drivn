@@ -4,11 +4,11 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend import data_loader
+from backend import data_loader, metrics
 
 router = APIRouter()
 
-VALID_CUSTOMERS = {"All", "FreshBus", "ZingBus", "BillionE"}
+VALID_CUSTOMERS = {"All", *metrics.CUSTOMERS}
 
 
 @router.get("/crosstab-matrix")

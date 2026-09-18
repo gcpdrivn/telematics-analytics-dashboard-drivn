@@ -5,7 +5,7 @@ export interface DateRangeResponse {
 
 export type Scope = "all" | "Bus" | "Truck" | "customers"
 export type Category = "all" | "Bus" | "Truck"
-export type CustomerName = "FreshBus" | "ZingBus" | "BillionE"
+export type CustomerName = "FreshBus" | "ZingBus" | "BillionE" | "AVG LOGISTICS" | "SWITCHLABS"
 export type CrosstabCustomer = "All" | CustomerName
 
 export interface KpiSummary {
@@ -64,11 +64,8 @@ export interface ActiveTimelineSeries {
   fleet_size: number
 }
 
-export interface ActiveTimeline {
+export interface ActiveTimeline extends Record<CustomerName, ActiveTimelineSeries> {
   dates: string[]
-  FreshBus: ActiveTimelineSeries
-  ZingBus: ActiveTimelineSeries
-  BillionE: ActiveTimelineSeries
   total: ActiveTimelineSeries
 }
 
@@ -152,7 +149,7 @@ export interface VehicleRecord {
   active_cv_pct: number
   volatility_tier: string
   volatility_class: string
-  daily_distance_history: number[]
+  daily_distance_history: (number | null)[]
 }
 
 export interface VehiclesResponse {

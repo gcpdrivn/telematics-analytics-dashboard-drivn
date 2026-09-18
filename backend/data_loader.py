@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 from google.cloud import bigquery
@@ -149,16 +150,30 @@ def _load_all() -> dict[str, pd.DataFrame]:
     # IST calendar date (from Fleetx trip timestamps / Excel exports), and
     # BigQuery's CURRENT_DATE() defaults to UTC, which would cut off up to
     # 5.5 hours into the wrong day.
-    raw_df = _query_df(
-        client,
+    utilization_sql = (
         f"SELECT * FROM `{utilization_table_ref}` "
-        "WHERE report_date < CURRENT_DATE('Asia/Kolkata')",
+        "WHERE report_date < CURRENT_DATE('Asia/Kolkata')"
     )
-    raw_df = raw_df.rename(columns=_UTILIZATION_RENAMES)
 
-    dim_vehicle = _query_df(client, f"SELECT * FROM `{settings.dim_vehicle_table_ref}`")
-    dim_customer = _query_df(client, f"SELECT * FROM `{settings.dim_customer_table_ref}`")
-    mileage_df = _query_df(client, f"SELECT * FROM `{settings.mileage_soc_table_ref}`")
+    # These 4 queries are independent, but run one at a time added up to
+    # ~5s of pure network/query-planning round-trips on a cold cache --
+    # BigQuery's Python client releases the GIL during the network wait, so
+    # a thread per query turns that sum into just the slowest one.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        raw_future = pool.submit(_query_df, client, utilization_sql)
+        dim_vehicle_future = pool.submit(
+            _query_df, client, f"SELECT * FROM `{settings.dim_vehicle_table_ref}`"
+        )
+        dim_customer_future = pool.submit(
+            _query_df, client, f"SELECT * FROM `{settings.dim_customer_table_ref}`"
+        )
+        mileage_future = pool.submit(
+            _query_df, client, f"SELECT * FROM `{settings.mileage_soc_table_ref}`"
+        )
+        raw_df = raw_future.result().rename(columns=_UTILIZATION_RENAMES)
+        dim_vehicle = dim_vehicle_future.result()
+        dim_customer = dim_customer_future.result()
+        mileage_df = mileage_future.result()
 
     return {
         "raw_utilization": raw_df,

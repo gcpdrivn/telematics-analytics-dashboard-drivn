@@ -1,9 +1,14 @@
-"""Orchestrates the Fleetx-API shadow ingestion run (Phase 1 of the Excel->
-API migration): pulls History Report trips for every dim_vehicle row with a
-resolved fleetx_id, aggregates them to daily rows, and loads them into
-utilization_daily_api. Does not touch utilization_daily, the Excel pipeline,
-or anything backend/ reads -- entirely a parallel, throwaway-and-rerunnable
-table for validating the API source before any cutover.
+"""Orchestrates the Fleetx-API ingestion run: pulls History Report trips for
+every dim_vehicle row with a resolved fleetx_id, aggregates them to daily
+rows, and loads them into utilization_daily_api. Never touches
+utilization_daily or the Excel pipeline.
+
+utilization_daily_api is the live dashboard's data source as of the
+Excel->API cutover (UTILIZATION_SOURCE=api in production) -- this is no
+longer a throwaway validation table. Safe to re-run for any --from/--to
+range: load_utilization_api_rows() only replaces rows within that range,
+so a daily run (yesterday only) or an ad-hoc backfill never touches data
+outside what it was actually asked to load.
 """
 
 from __future__ import annotations
@@ -19,6 +24,14 @@ from ingestion import api_transform, bq_client, fleetx_client, fleetx_vehicle_ma
 from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# A trip ending right around midnight can occasionally land on the calendar
+# day after `end_date` (a day-boundary/timezone rounding quirk in how the
+# from/to epoch window lines up with Fleetx's own local-time bookkeeping,
+# not a bug in a specific trip). This is the only legitimate spillover --
+# bounds both how far the loaded rows and the delete window are allowed to
+# extend past what was actually requested.
+DATE_TOLERANCE = dt.timedelta(days=1)
 
 
 @dataclass
@@ -124,10 +137,46 @@ def run(
 
     combined = pd.concat(daily_frames, ignore_index=True)
 
+    # A trip that never closes (confirmed live: HR55BE9129's trip
+    # 03038698 from 2026-08-17 has eDate=null and a duration that's still
+    # growing every time it's queried) comes back from Fleetx on EVERY
+    # request for that vehicle, regardless of the from/to window asked
+    # for -- not just the one it actually happened on. aggregate_trips_to_
+    # daily() falls back to sDate when eDate is missing, so it lands on
+    # its original (real) date, which can be months before `start_date`.
+    # Bounded here rather than trusted: report_date must fall within the
+    # requested range plus DATE_TOLERANCE (the one legitimate case of a
+    # trip landing a day past end_date -- see _to_epoch_ms). Anything
+    # further out is dropped, not loaded -- and load_utilization_api_rows'
+    # delete window uses this same fixed bound, not whatever range the
+    # fetched data happens to span, so a stuck trip like this one can
+    # never again cause a delete far wider than what was actually asked
+    # for (it did, once, in production -- see git history).
+    in_range = (combined["report_date"] >= start_date) & (
+        combined["report_date"] <= end_date + DATE_TOLERANCE
+    )
+    if (~in_range).any():
+        dropped = combined.loc[~in_range, ["base_license_plate", "report_date"]]
+        for _, row in dropped.drop_duplicates().iterrows():
+            logger.warning(
+                "%s: dropping a row dated %s -- outside the requested %s..%s "
+                "range (+%d day tolerance), likely a stuck-open trip Fleetx "
+                "keeps returning regardless of the query window.",
+                row["base_license_plate"], row["report_date"], start_date, end_date,
+                DATE_TOLERANCE.days,
+            )
+        combined = combined[in_range]
+
+    if combined.empty:
+        logger.warning("No in-range trips left for any vehicle after date-bounds filtering.")
+        return results
+
     if dry_run:
         logger.info("[dry-run] Would load %d row(s) into %s", len(combined), settings.utilization_api_table_ref)
         return results
 
-    bq_client.load_utilization_api_rows(client, settings, combined)
+    bq_client.load_utilization_api_rows(
+        client, settings, combined, start_date, end_date + DATE_TOLERANCE
+    )
     logger.info("Loaded %d row(s) into %s", len(combined), settings.utilization_api_table_ref)
     return results

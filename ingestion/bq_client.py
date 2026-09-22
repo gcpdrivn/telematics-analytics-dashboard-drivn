@@ -37,9 +37,10 @@ def ensure_utilization_table(client: bigquery.Client, settings: Settings) -> Non
 
 
 def ensure_utilization_api_table(client: bigquery.Client, settings: Settings) -> None:
-    """Shadow table for the Fleetx-API pipeline -- same UTILIZATION_SCHEMA as
-    utilization_daily, so the two can be compared/diffed column-for-column
-    during validation."""
+    """The Fleetx-API-sourced utilization table -- same UTILIZATION_SCHEMA as
+    utilization_daily (originally so the two could be compared/diffed
+    column-for-column during validation; now also the live dashboard's
+    source table post-cutover)."""
     table = bigquery.Table(settings.utilization_api_table_ref, schema=UTILIZATION_SCHEMA)
     table.time_partitioning = bigquery.TimePartitioning(
         type_=bigquery.TimePartitioningType.MONTH, field="report_date"
@@ -133,17 +134,55 @@ def load_mileage_soc_rows(
 
 
 def load_utilization_api_rows(
-    client: bigquery.Client, settings: Settings, df: pd.DataFrame
+    client: bigquery.Client,
+    settings: Settings,
+    df: pd.DataFrame,
+    start_date: dt.date,
+    end_date: dt.date,
 ) -> None:
-    """Full-refresh load: the shadow table is regenerated wholesale on every
-    run for a given date range, not appended to -- it exists purely for
-    validation against utilization_daily, not as a production stream."""
+    """Scoped replace: deletes any existing rows in [start_date, end_date]
+    (cheap -- the table is MONTH-partitioned on report_date, see
+    ensure_utilization_api_table) then appends the freshly-pulled rows.
+    Makes both a daily incremental run (yesterday only) and an ad-hoc
+    backfill (an arbitrary --from/--to range) safe to re-run -- no date ever
+    accumulates duplicates, and nothing outside [start_date, end_date] is
+    touched.
+
+    [start_date, end_date] here must be the caller's actual delete/insert
+    window, already widened for any known spillover tolerance (see
+    api_pipeline.DATE_TOLERANCE) -- deliberately NOT derived from df's own
+    report_date values. A trip that never closes comes back from Fleetx on
+    every query for that vehicle regardless of the from/to window asked
+    for, landing on its real (old) date via aggregate_trips_to_daily()'s
+    sDate fallback -- trusting df's date range once let a single still-open
+    trip from a month earlier widen this delete across everything in
+    between, deleting real data. api_pipeline.run() now filters df to
+    [start_date, end_date] before this is ever called, so df's own dates
+    should already agree -- this function just doesn't re-derive the delete
+    window from data it doesn't fully control.
+
+    (Not atomic across a mid-run crash: if the load fails right after the
+    delete, that range reads empty until the next successful run. Acceptable
+    for a nightly job -- it self-heals the next run rather than needing a
+    multi-statement transaction here.)"""
     df = df.copy()
     df["ingested_at"] = dt.datetime.now(dt.timezone.utc)
 
+    delete_job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        ]
+    )
+    client.query(
+        f"DELETE FROM `{settings.utilization_api_table_ref}` "
+        "WHERE report_date BETWEEN @start_date AND @end_date",
+        job_config=delete_job_config,
+    ).result()
+
     job_config = bigquery.LoadJobConfig(
         schema=UTILIZATION_SCHEMA,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
     )
     job = client.load_table_from_dataframe(
         df, settings.utilization_api_table_ref, job_config=job_config

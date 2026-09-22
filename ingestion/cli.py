@@ -7,6 +7,7 @@ import datetime as dt
 import logging
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ingestion import api_pipeline, api_validation, bq_client, mileage, pipeline, seed_dimensions
 from ingestion.config import load_settings
@@ -70,21 +71,26 @@ def main_mileage() -> None:
     print(f"\nDone. Loaded {row_count} row(s) into {settings.mileage_soc_table_ref}.")
 
 
+def _yesterday_ist() -> dt.date:
+    return (dt.datetime.now(ZoneInfo("Asia/Kolkata")) - dt.timedelta(days=1)).date()
+
+
 def main_ingest_api() -> None:
-    """`uv run ingest-utilization-api` -- Phase 1 shadow pipeline, loads
-    Fleetx API data into utilization_daily_api for validation. Never touches
+    """`uv run ingest-utilization-api` -- pulls Fleetx API data into
+    utilization_daily_api, the live dashboard's data source. Never touches
     utilization_daily or the Excel pipeline."""
     parser = argparse.ArgumentParser(
-        description="Pull Fleetx History Report trips into utilization_daily_api "
-        "(shadow table, for validating the API source against Excel)."
+        description="Pull Fleetx History Report trips into utilization_daily_api. "
+        "With no --from/--to, defaults to yesterday (IST) -- the daily "
+        "scheduled-job case. Pass both for an ad-hoc backfill."
     )
     parser.add_argument(
-        "--from", dest="start_date", required=True, type=dt.date.fromisoformat,
-        help="Start date, inclusive, YYYY-MM-DD.",
+        "--from", dest="start_date", type=dt.date.fromisoformat, default=None,
+        help="Start date, inclusive, YYYY-MM-DD. Defaults to yesterday (IST).",
     )
     parser.add_argument(
-        "--to", dest="end_date", required=True, type=dt.date.fromisoformat,
-        help="End date, inclusive, YYYY-MM-DD.",
+        "--to", dest="end_date", type=dt.date.fromisoformat, default=None,
+        help="End date, inclusive, YYYY-MM-DD. Defaults to yesterday (IST).",
     )
     parser.add_argument(
         "--dry-run",
@@ -97,9 +103,12 @@ def main_ingest_api() -> None:
     args = parser.parse_args()
     _configure_logging(args.verbose)
 
+    start_date = args.start_date or _yesterday_ist()
+    end_date = args.end_date or _yesterday_ist()
+
     settings = load_settings()
     results = api_pipeline.run(
-        settings, start_date=args.start_date, end_date=args.end_date, dry_run=args.dry_run
+        settings, start_date=start_date, end_date=end_date, dry_run=args.dry_run
     )
 
     loaded = [r for r in results if r.status == "loaded"]

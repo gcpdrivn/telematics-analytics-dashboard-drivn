@@ -12,16 +12,18 @@ export function ShareDonut({ customers }: { customers: CustomerProfile[] }) {
           labels: customers.map((c) => c.customer),
           values: customers.map((c) => c.share_pct),
           marker: { colors: customers.map((c) => CUSTOMER_COLORS[c.customer]) },
-          textinfo: "label+percent",
+          textinfo: "percent",
           hoverinfo: "label+percent",
+          automargin: true,
         },
       ]}
       layout={{
         paper_bgcolor: "transparent",
         plot_bgcolor: "transparent",
-        margin: { l: 10, r: 10, t: 10, b: 10 },
-        height: 260,
-        showlegend: false,
+        margin: { l: 10, r: 10, t: 10, b: 50 },
+        height: 300,
+        showlegend: true,
+        legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.15 },
       }}
       config={{ responsive: true, displayModeBar: false }}
       style={{ width: "100%" }}

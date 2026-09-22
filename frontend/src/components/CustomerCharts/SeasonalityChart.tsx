@@ -26,7 +26,13 @@ export function SeasonalityChart({
         ),
         hoverinfo: "text+name",
       }))}
-      layout={{ ...PLOT_LAYOUT_BASE, height: 300, yaxis: { title: { text: "Mean active distance (km)" } } }}
+      layout={{
+        ...PLOT_LAYOUT_BASE,
+        height: 300,
+        margin: { ...PLOT_LAYOUT_BASE.margin, b: 70 },
+        yaxis: { title: { text: "Mean active distance (km)" } },
+        xaxis: { tickangle: -30, automargin: true },
+      }}
       config={{ responsive: true, displayModeBar: false }}
       style={{ width: "100%" }}
       useResizeHandler

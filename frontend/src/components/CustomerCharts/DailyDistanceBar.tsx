@@ -17,7 +17,12 @@ export function DailyDistanceBar({ customers }: { customers: CustomerProfile[] }
           marker: { color: sorted.map((c) => CUSTOMER_COLORS[c.customer]) },
         },
       ]}
-      layout={{ ...PLOT_LAYOUT_BASE, height: 220, xaxis: { title: { text: "Avg km/day/vehicle" } } }}
+      layout={{
+        ...PLOT_LAYOUT_BASE,
+        height: 220,
+        xaxis: { title: { text: "Avg km/day/vehicle" } },
+        yaxis: { automargin: true },
+      }}
       config={{ responsive: true, displayModeBar: false }}
       style={{ width: "100%" }}
       useResizeHandler

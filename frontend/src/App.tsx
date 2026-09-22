@@ -3,7 +3,6 @@ import { DateRangePicker } from "./components/DateRangePicker"
 import { ThemeToggle } from "./components/ThemeToggle"
 import { BusesPage } from "./pages/BusesPage"
 import { CustomersPage } from "./pages/CustomersPage"
-import { OverviewPage } from "./pages/OverviewPage"
 import { TrucksPage } from "./pages/TrucksPage"
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -29,16 +28,13 @@ export default function App() {
         <div className="header-controls">
           <nav className="header-segmented-nav">
             <NavLink to={{ pathname: "/", search: location.search }} end className={navClass}>
-              Overview
+              Customers
             </NavLink>
             <NavLink to={{ pathname: "/buses", search: location.search }} className={navClass}>
               Buses
             </NavLink>
             <NavLink to={{ pathname: "/trucks", search: location.search }} className={navClass}>
               Trucks
-            </NavLink>
-            <NavLink to={{ pathname: "/customers", search: location.search }} className={navClass}>
-              Customers
             </NavLink>
           </nav>
           <DateRangePicker />
@@ -47,7 +43,7 @@ export default function App() {
       </header>
 
       <Routes>
-        <Route path="/" element={<OverviewPage />} />
+        <Route path="/" element={<CustomersPage />} />
         <Route path="/buses" element={<BusesPage />} />
         <Route path="/trucks" element={<TrucksPage />} />
         <Route path="/customers" element={<CustomersPage />} />

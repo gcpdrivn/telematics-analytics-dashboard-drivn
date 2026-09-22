@@ -119,7 +119,13 @@ export function VehicleTable({ vehicles, showType = false }: { vehicles: Vehicle
                 )}
               </td>
               <td style={{ textAlign: "center", padding: "4px 6px" }}>
-                <Sparkline values={v.daily_distance_history ? v.daily_distance_history.slice().reverse() : []} />
+                <Sparkline
+                  values={
+                    v.daily_distance_history
+                      ? v.daily_distance_history.slice().reverse().map((n) => n ?? 0)
+                      : []
+                  }
+                />
               </td>
             </tr>
           ))}

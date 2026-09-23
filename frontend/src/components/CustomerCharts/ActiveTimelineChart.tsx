@@ -1,11 +1,17 @@
 import Plot from "../../plotly-shim"
-import type { ActiveTimeline } from "../../api/types"
+import type { ActiveTimeline, CustomerName } from "../../api/types"
 import { ALL_CUSTOMERS, CUSTOMER_COLORS, PLOT_LAYOUT_BASE } from "./colors"
 
-export function ActiveTimelineChart({ timeline }: { timeline: ActiveTimeline }) {
+export function ActiveTimelineChart({
+  timeline,
+  customers = ALL_CUSTOMERS,
+}: {
+  timeline: ActiveTimeline
+  customers?: CustomerName[]
+}) {
   return (
     <Plot
-      data={ALL_CUSTOMERS.map((c) => ({
+      data={customers.map((c) => ({
         type: "scatter" as const,
         mode: "lines+markers" as const,
         name: c,

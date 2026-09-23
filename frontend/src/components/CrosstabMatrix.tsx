@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { CrosstabCustomer, CrosstabResponse } from "../api/types"
-import { ALL_CUSTOMERS, TRUCK_CUSTOMERS } from "./CustomerCharts/colors"
+import { TRUCK_CUSTOMERS } from "./CustomerCharts/colors"
 
 /** Hand-rolled heatmap table (not Plotly) -- ports the exact cell alpha
  * formula and click-to-lock Duty Inspector behavior found in report.html's
@@ -10,8 +10,6 @@ const BAND_RGBA = {
   truck: ["100, 116, 139", "59, 130, 246", "6, 182, 212", "92, 176, 48"],
   bus: ["100, 116, 139", "59, 130, 246", "6, 182, 212", "92, 176, 48", "139, 92, 246"],
 }
-
-const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", ...ALL_CUSTOMERS]
 
 function formatShortDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number)
@@ -23,15 +21,7 @@ function formatShortDate(iso: string): string {
   return `${String(d).padStart(2, "0")} ${monthNames[m - 1]} (${dayNames[dt.getDay()]})`
 }
 
-export function CrosstabMatrix({
-  data,
-  customer,
-  onCustomerChange,
-}: {
-  data: CrosstabResponse
-  customer: CrosstabCustomer
-  onCustomerChange: (c: CrosstabCustomer) => void
-}) {
+export function CrosstabMatrix({ data, customer }: { data: CrosstabResponse; customer: CrosstabCustomer }) {
   const [selected, setSelected] = useState<{ date: string; bandIdx: number } | null>(null)
   const [hover, setHover] = useState<{ date: string; bandIdx: number; x: number; y: number } | null>(null)
 
@@ -47,14 +37,6 @@ export function CrosstabMatrix({
 
   return (
     <div>
-      <div className="customer-nav">
-        {CUSTOMER_FILTERS.map((c) => (
-          <button key={c} className={`seg-pill ${customer === c ? "active" : ""}`} onClick={() => onCustomerChange(c)}>
-            {c}
-          </button>
-        ))}
-      </div>
-
       <div className="kpi-row" style={{ marginBottom: "1rem" }}>
         <div className="kpi-box">
           <div className="kpi-label">Evaluated Vehicle Runs</div>

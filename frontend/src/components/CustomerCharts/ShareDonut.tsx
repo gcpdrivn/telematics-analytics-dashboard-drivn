@@ -1,8 +1,25 @@
 import Plot from "../../plotly-shim"
-import type { CustomerProfile } from "../../api/types"
+import type { CustomerName, CustomerProfile } from "../../api/types"
 import { CUSTOMER_COLORS } from "./colors"
 
-export function ShareDonut({ customers }: { customers: CustomerProfile[] }) {
+function dim(hex: string): string {
+  const c = hex.replace("#", "")
+  const r = parseInt(c.substring(0, 2), 16)
+  const g = parseInt(c.substring(2, 4), 16)
+  const b = parseInt(c.substring(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, 0.35)`
+}
+
+/** Filtering this donut down to one customer would make it a degenerate
+ * 100% slice, so the page-level customer filter highlights (pulls out) the
+ * selected slice here instead of filtering the underlying data. */
+export function ShareDonut({
+  customers,
+  highlight,
+}: {
+  customers: CustomerProfile[]
+  highlight?: CustomerName | null
+}) {
   return (
     <Plot
       data={[
@@ -11,7 +28,12 @@ export function ShareDonut({ customers }: { customers: CustomerProfile[] }) {
           hole: 0.62,
           labels: customers.map((c) => c.customer),
           values: customers.map((c) => c.share_pct),
-          marker: { colors: customers.map((c) => CUSTOMER_COLORS[c.customer]) },
+          marker: {
+            colors: customers.map((c) =>
+              highlight && c.customer !== highlight ? dim(CUSTOMER_COLORS[c.customer]) : CUSTOMER_COLORS[c.customer]
+            ),
+          },
+          pull: highlight ? customers.map((c) => (c.customer === highlight ? 0.08 : 0)) : undefined,
           textinfo: "percent",
           hoverinfo: "label+percent",
           automargin: true,

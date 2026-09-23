@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadUptimeExport, getVehicleUptime } from "../api/client"
 import type { DateRange } from "../api/client"
 import type { CrosstabCustomer, UptimeResponse, VehicleUptime } from "../api/types"
-import { ALL_CUSTOMERS } from "./CustomerCharts/colors"
 
-const CUSTOMER_FILTERS: CrosstabCustomer[] = ["All", ...ALL_CUSTOMERS]
 type SortKey = "vehicle_number" | "uptime_pct" | "ran_days" | "not_run_days" | "not_sure_days"
 
 function formatDateHeader(iso: string): string {
@@ -22,8 +20,7 @@ function contrastText(hex: string): string {
   return luminance > 0.6 ? "#1a1a1a" : "#ffffff"
 }
 
-export function UptimeTable({ range }: { range: DateRange }) {
-  const [customer, setCustomer] = useState<CrosstabCustomer>("All")
+export function UptimeTable({ range, customer }: { range: DateRange; customer: CrosstabCustomer }) {
   const [data, setData] = useState<UptimeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -86,17 +83,6 @@ export function UptimeTable({ range }: { range: DateRange }) {
       <div className="panel-header">Vehicle Uptime Calendar</div>
       <div className="panel-body">
         <div className="uptime-toolbar">
-          <div className="customer-nav">
-            {CUSTOMER_FILTERS.map((c) => (
-              <button
-                key={c}
-                className={`seg-pill ${customer === c ? "active" : ""}`}
-                onClick={() => setCustomer(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
           <div className="uptime-export-actions">
             <button className="btn-action" disabled={exporting} onClick={() => handleExport()}>
               {exporting ? "Exporting…" : "⬇️ Export"}

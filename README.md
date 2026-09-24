@@ -37,18 +37,33 @@ The pipeline will:
 
 ### Mileage/SoC benchmarks and customer/vehicle dimensions
 
-Two more one-off/occasional commands, both full-refresh (`WRITE_TRUNCATE`) rather than
-append+dedup, since they're small reference tables, not a growing daily stream:
+Two more occasional commands for the small reference tables:
 
 ```bash
-uv run ingest-mileage-soc   # loads data/raw/vehicle_mileage_soc.xlsx -> vehicle_mileage_soc
-uv run seed-dimensions      # seeds dim_customer + dim_vehicle
+uv run ingest-mileage-soc          # full-refresh: data/raw/vehicle_mileage_soc.xlsx -> vehicle_mileage_soc
+uv run seed-dimensions --dry-run   # preview a dim_customer + dim_vehicle sync, write nothing
+uv run seed-dimensions             # preview, ask for confirmation, back up, then apply
 ```
 
-`seed-dimensions` must run **after** `ingest-utilization` has loaded at least once — FreshBus
-and ZingBus plates are hardcoded (ported from `generate_presentation_report.py`), but BillionE
-plates are discovered live via `base_license_plate LIKE 'MH02%'` against `utilization_daily`,
-not hardcoded, so a new BillionE truck is picked up automatically on the next re-seed.
+`seed-dimensions` syncs `dim_vehicle` / `dim_customer` from the Fleetx vehicle export
+(`data/raw/Vehicle_Update_uploader.xlsx`). Each vehicle's customer comes from its Fleetx
+customer tag, mapped in `ingestion/dimension_sync.py`'s `CUSTOMER_TAGS`. An untagged vehicle,
+or one with an unmapped tag, is reported and skipped, never guessed. The sync is safe to run
+against a bad export:
+
+- It refuses a malformed export (missing sheet/columns, no rows, no known customer tags).
+- It prints every add / change / deactivation first, and writes nothing without a typed
+  `yes` (or `--yes` for unattended runs).
+- It never deletes: a vehicle missing from the export is marked `is_active = FALSE`, keeping
+  its history. The daily API pull skips inactive vehicles.
+- It snapshots both tables (kept 30 days) before writing, and prints the one-line restore
+  command. The write itself is a single atomic `MERGE`.
+- Hand-entered data wins: `dim_vehicle_master.xlsx` > the value already in the table > derived
+  values, and a filled-in value is never replaced by a blank.
+- New or reactivated vehicles get their full history pulled right after the sync (only their
+  rows are written), then `resolve-odometer` runs and the dashboard cache is cleared (if
+  `BACKEND_URL` is set), so they show up immediately. Skip with `--no-backfill`; retry with
+  `uv run backfill-vehicles PLATE ...`.
 
 ### Layout
 
@@ -58,7 +73,9 @@ ingestion/
   schema.py          # BigQuery table schemas
   transform.py       # Utilization Excel -> cleaned DataFrame (ported from the notebook)
   mileage.py          # Mileage/SoC Excel -> cleaned DataFrame + full-refresh load
-  seed_dimensions.py   # Seeds dim_customer / dim_vehicle
+  seed_dimensions.py   # Safe sync of dim_customer / dim_vehicle (preview, confirm, backup, MERGE)
+  dimension_sync.py    # Pure planning/diff rules for that sync, incl. CUSTOMER_TAGS
+  vehicle_backfill.py  # Pulls full history for specific (newly onboarded) vehicles
   bq_client.py          # dataset/table provisioning, dedup lookups, loading
   pipeline.py            # orchestrates one utilization ingestion run
   cli.py                  # `ingest-utilization` / `ingest-mileage-soc` / `seed-dimensions`

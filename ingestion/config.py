@@ -39,6 +39,10 @@ class Settings:
     mileage_soc_file: Path
     dim_vehicle_master_file: Path
     fleetx_vehicle_map_file: Path
+    # Deployed dashboard backend (e.g. the Cloud Run URL), so a vehicle
+    # backfill can clear its in-process cache and show the new data
+    # immediately. Optional -- unset means "wait for the cache TTL".
+    backend_url: str | None = None
 
     @property
     def dataset_ref(self) -> str:
@@ -123,4 +127,5 @@ def load_settings() -> Settings:
         fleetx_vehicle_map_file=_resolve_path(
             "FLEETX_VEHICLE_MAP_FILE", "data/raw/Vehicle_Update_uploader.xlsx"
         ),
+        backend_url=(os.environ.get("BACKEND_URL") or "").strip().rstrip("/") or None,
     )

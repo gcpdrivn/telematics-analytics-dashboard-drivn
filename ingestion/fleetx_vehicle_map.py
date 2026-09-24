@@ -1,7 +1,7 @@
-"""Resolves each plate's Fleetx vehicleId from Vehicle_Update_uploader.xlsx
-(Fleetx's own vehicle admin export), for calling the Fleetx API. Also
-discovers plates present in that export but not yet in any known roster
-(new vehicles to onboard).
+"""Reads Vehicle_Update_uploader.xlsx (Fleetx's own vehicle admin export) into
+one record per plated vehicle: its customer tag(s) and the Fleetx vehicleId
+of its primary device, for calling the Fleetx API. seed_dimensions.py syncs
+dim_vehicle from these records.
 
 Each physical vehicle can have multiple registered devices (OBD, DashCam,
 a separate API/AIS140 tracker), each with its own vehicleId. DashCam devices
@@ -89,6 +89,10 @@ def _row_to_resolution(row: pd.Series, reason: str) -> Resolution:
     )
 
 
+def _is_api_device(rows: pd.DataFrame) -> pd.Series:
+    return rows["number"].astype(str).str.upper().str.endswith("_API") | (rows["group"] == "API")
+
+
 def _resolve_group(rows: pd.DataFrame) -> Resolution:
     obd_group = rows[rows["group"] == "OBD"]
     if len(obd_group) == 1:
@@ -105,35 +109,95 @@ def _resolve_group(rows: pd.DataFrame) -> Resolution:
         return _row_to_resolution(obd_hint.iloc[0], "OBD-in-name tiebreak")
     if len(candidates) == 1:
         return _row_to_resolution(candidates.iloc[0], "single non-DashCam candidate")
+    # A "<plate>_API" device alongside the vehicle's own tracker is an OEM
+    # push feed, not a trip source: the TATA OEM devices added for all AVG
+    # trucks in Sep 2026 each reported exactly one snapshot trip over a week
+    # (a single odometer reading, then 0), while the original trackers carry
+    # the real trips. Prefer the non-API device when that leaves exactly one.
+    # (A vehicle whose API device *is* its live source, like DL1PD9284, is
+    # handled by seed_dimensions.FLEETX_ID_MANUAL_OVERRIDES.)
+    non_api = candidates[~_is_api_device(candidates)]
+    if len(non_api) == 1:
+        return _row_to_resolution(non_api.iloc[0], "non-API tiebreak")
     return Resolution(None, f"ambiguous: {len(candidates)} non-DashCam candidates")
 
 
+class ExportFileError(ValueError):
+    """The uploader file is missing, unreadable, or not shaped like a Fleetx
+    vehicle export -- seed_dimensions.py aborts on this rather than syncing
+    dim_vehicle against a bad file."""
+
+
 def _load(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name=SHEET_NAME)
+    if not path.exists():
+        raise ExportFileError(f"Vehicle export '{path}' not found.")
+    try:
+        df = pd.read_excel(path, sheet_name=SHEET_NAME)
+    except ValueError as exc:  # missing sheet, unreadable workbook
+        raise ExportFileError(f"Could not read sheet '{SHEET_NAME}' from '{path.name}': {exc}") from exc
     df.columns = [str(c).strip() for c in df.columns]
+    missing = [c for c in _ROW_COLUMNS if c not in df.columns]
+    if missing:
+        raise ExportFileError(f"'{path.name}' is missing expected columns: {missing}")
     df = df[_ROW_COLUMNS].copy()
+    if df.empty:
+        raise ExportFileError(f"'{path.name}' has no vehicle rows.")
+    if df["id"].isna().any():
+        raise ExportFileError(f"'{path.name}' has {int(df['id'].isna().sum())} row(s) with a blank id.")
     df["base_plate"] = df["number"].apply(_base_plate)
     return df
 
 
-def resolve_fleetx_ids(path: Path, plates: list[str]) -> dict[str, Resolution]:
-    """Returns one Resolution per requested plate ('not in uploader file' for
-    plates absent from the sheet entirely)."""
+@dataclass(frozen=True)
+class ExportVehicle:
+    """One plated vehicle from the export, with every device registered to
+    it folded together. `tags` is the union across all its devices: the
+    customer tag is often only on one of them (e.g. DL1PD8677's tag sits on
+    its _CAM device, not the OBD one we pull data from)."""
+
+    plate: str
+    tags: frozenset[str]
+    fleetx_id: int | None
+    fleetx_reason: str
+    vehicle_maker: str | None
+    vehicle_model: str | None
+    vehicle_type: str | None
+
+
+def _is_test(rows: pd.DataFrame) -> pd.Series:
+    return (rows["group"] == "TEST") | (rows["tags"].astype(str).str.strip().str.upper() == "TEST")
+
+
+def read_export_vehicles(path: Path) -> tuple[dict[str, ExportVehicle], int]:
+    """Every real-plate vehicle in the export, keyed by base plate, plus the
+    number of device rows skipped for not having a real plate (chassis
+    numbers, VINs, PO-tracking ids -- see _PLATE_RE). TEST devices are
+    dropped entirely. Raises ExportFileError on a malformed file."""
     df = _load(path)
-    results: dict[str, Resolution] = {}
-    for plate in plates:
-        rows = df[df["base_plate"] == plate]
-        if rows.empty:
-            results[plate] = Resolution(None, "not in uploader file")
-        else:
-            results[plate] = _resolve_group(rows)
-    return results
+    df = df[~_is_test(df)]
+    is_plate = df["base_plate"].apply(looks_like_plate)
+    skipped_non_plate = int((~is_plate).sum())
+
+    vehicles: dict[str, ExportVehicle] = {}
+    for plate, rows in df[is_plate].groupby("base_plate"):
+        resolution = _resolve_group(rows)
+        tags = frozenset(t for t in (_clean(v) for v in rows["tags"]) if t)
+        vehicles[plate] = ExportVehicle(
+            plate=plate,
+            tags=tags,
+            fleetx_id=resolution.fleetx_id,
+            fleetx_reason=resolution.reason,
+            vehicle_maker=resolution.vehicle_maker,
+            vehicle_model=resolution.vehicle_model,
+            vehicle_type=resolution.vehicle_type,
+        )
+    return vehicles, skipped_non_plate
 
 
 def non_dashcam_candidate_ids(path: Path, plate: str) -> list[int]:
     """All non-DashCam device ids registered for this plate, in the same
-    preference order resolve_fleetx_ids() uses (OBD-labeled first, then
-    OBD-in-name, then everything else), for use as live fallbacks when the
+    preference order read_export_vehicles() uses (OBD-labeled first, then
+    OBD-in-name, then non-API devices, then everything else), for use as live fallbacks when the
     resolved primary id turns out to be dead -- e.g. a stale 'OBD' label on
     hardware that's since failed (found for DL1PD9284: its labeled OBD
     device returns zero trips, while its DashCam and API devices are both
@@ -152,30 +216,10 @@ def non_dashcam_candidate_ids(path: Path, plate: str) -> list[int]:
     for subset in (
         candidates[candidates["group"] == "OBD"],
         candidates[candidates["number"].astype(str).str.contains("OBD")],
+        candidates[~_is_api_device(candidates)],
         candidates,
     ):
         for fleetx_id in subset["id"].astype(int):
             if fleetx_id not in ordered_ids:
                 ordered_ids.append(fleetx_id)
     return ordered_ids
-
-
-def discover_new_vehicles(path: Path, known_plates: set[str]) -> dict[str, Resolution]:
-    """Finds plates in the uploader file that aren't in `known_plates`,
-    excluding anything that doesn't look like a real registration plate
-    (chassis numbers, VINs, PO-tracking ids -- see _PLATE_RE) and anything
-    tagged/grouped 'TEST'. Callers should still check `tags` on the result:
-    a handful of otherwise-valid new plates have no tags filled in on the
-    Fleetx side and shouldn't be auto-assigned a customer."""
-    df = _load(path)
-    df = df[
-        (df["group"] != "TEST")
-        & (df["tags"].astype(str).str.upper() != "TEST")
-        & df["base_plate"].apply(looks_like_plate)
-        & ~df["base_plate"].isin(known_plates)
-    ]
-
-    results: dict[str, Resolution] = {}
-    for plate, rows in df.groupby("base_plate"):
-        results[plate] = _resolve_group(rows)
-    return results

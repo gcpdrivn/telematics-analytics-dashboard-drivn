@@ -24,6 +24,7 @@ explore-fleetx-api = "ingestion.api_explore:main"
 ingest-utilization-api = "ingestion.cli:main_ingest_api"
 validate-api-pipeline = "ingestion.cli:main_validate_api"
 resolve-odometer = "ingestion.cli:main_resolve_odometer"
+backfill-vehicles = "ingestion.cli:main_backfill_vehicles"
 
 [build-system]
 requires = ["hatchling"]

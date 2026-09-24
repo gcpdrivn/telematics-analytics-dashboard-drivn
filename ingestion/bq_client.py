@@ -66,6 +66,7 @@ def ensure_mileage_soc_table(client: bigquery.Client, settings: Settings) -> Non
 def ensure_dim_customer_table(client: bigquery.Client, settings: Settings) -> None:
     table = bigquery.Table(settings.dim_customer_table_ref, schema=DIM_CUSTOMER_SCHEMA)
     client.create_table(table, exists_ok=True)
+    _add_missing_columns(client, settings.dim_customer_table_ref, DIM_CUSTOMER_SCHEMA)
 
 
 def ensure_dim_vehicle_table(client: bigquery.Client, settings: Settings) -> None:
@@ -169,8 +170,11 @@ def load_utilization_api_rows(
     df: pd.DataFrame,
     start_date: dt.date,
     end_date: dt.date,
+    plates: list[str] | None = None,
 ) -> None:
     """Scoped replace: deletes any existing rows in [start_date, end_date]
+    -- only for `plates` when given (a per-vehicle backfill must never touch
+    any other vehicle's rows), otherwise for every vehicle --
     (cheap -- the table is MONTH-partitioned on report_date, see
     ensure_utilization_api_table) then appends the freshly-pulled rows.
     Makes both a daily incremental run (yesterday only) and an ad-hoc
@@ -198,16 +202,21 @@ def load_utilization_api_rows(
     df = df.copy()
     df["ingested_at"] = dt.datetime.now(dt.timezone.utc)
 
-    delete_job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
-            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
-        ]
-    )
+    params = [
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+    ]
+    plate_filter = ""
+    if plates is not None:
+        if not plates:
+            return
+        params.append(bigquery.ArrayQueryParameter("plates", "STRING", sorted(plates)))
+        plate_filter = " AND base_license_plate IN UNNEST(@plates)"
+        df = df[df["base_license_plate"].isin(plates)]
     client.query(
         f"DELETE FROM `{settings.utilization_api_table_ref}` "
-        "WHERE report_date BETWEEN @start_date AND @end_date",
-        job_config=delete_job_config,
+        f"WHERE report_date BETWEEN @start_date AND @end_date{plate_filter}",
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
     ).result()
 
     job_config = bigquery.LoadJobConfig(
@@ -253,35 +262,20 @@ def get_daily_rows(
 def get_vehicle_fleetx_ids(
     client: bigquery.Client, settings: Settings
 ) -> list[tuple[str, int]]:
-    """(base_license_plate, fleetx_id) pairs for every dim_vehicle row that
-    has a resolved fleetx_id -- the vehicles the API pipeline can pull."""
+    """(base_license_plate, fleetx_id) pairs for every active dim_vehicle row
+    that has a resolved fleetx_id -- the vehicles the API pipeline can pull.
+    A NULL is_active (row from before that column existed) counts as active,
+    and so does every row if the column hasn't been added yet (seed-dimensions
+    not run since it was introduced)."""
+    columns = {f.name for f in client.get_table(settings.dim_vehicle_table_ref).schema}
+    active_filter = "AND COALESCE(is_active, TRUE)" if "is_active" in columns else ""
     query = f"""
         SELECT base_license_plate, fleetx_id
         FROM `{settings.dim_vehicle_table_ref}`
-        WHERE fleetx_id IS NOT NULL
+        WHERE fleetx_id IS NOT NULL {active_filter}
     """
     rows = client.query(query).result()
     return [(row.base_license_plate, row.fleetx_id) for row in rows]
-
-
-def get_distinct_plates_by_prefix(
-    client: bigquery.Client, settings: Settings, prefix: str
-) -> list[str]:
-    """Distinct base_license_plate values from utilization_daily matching a
-    prefix, e.g. reproducing the script's `startswith('MH02')` BillionE rule
-    as a live lookup instead of a hardcoded list."""
-    query = f"""
-        SELECT DISTINCT base_license_plate
-        FROM `{settings.utilization_table_ref}`
-        WHERE base_license_plate LIKE @prefix_pattern
-    """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("prefix_pattern", "STRING", f"{prefix}%")
-        ]
-    )
-    rows = client.query(query, job_config=job_config).result()
-    return sorted(row.base_license_plate for row in rows)
 
 
 def get_vehicle_type_model_rows(
@@ -327,30 +321,75 @@ def get_odometer_rows_by_plate(client: bigquery.Client, settings: Settings) -> p
     )
 
 
-def load_dim_customer_rows(
-    client: bigquery.Client, settings: Settings, df: pd.DataFrame
-) -> None:
-    job_config = bigquery.LoadJobConfig(
-        schema=DIM_CUSTOMER_SCHEMA,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+def get_utilization_api_min_date(client: bigquery.Client, settings: Settings) -> dt.date | None:
+    """Earliest report_date in utilization_daily_api -- the start of the
+    dashboard's history, used as a new vehicle's default backfill start."""
+    rows = list(
+        client.query(f"SELECT MIN(report_date) AS d FROM `{settings.utilization_api_table_ref}`").result()
     )
-    job = client.load_table_from_dataframe(
-        df, settings.dim_customer_table_ref, job_config=job_config
-    )
-    job.result()
+    return rows[0].d if rows else None
 
 
-def load_dim_vehicle_rows(
-    client: bigquery.Client, settings: Settings, df: pd.DataFrame
+def get_table_rows(client: bigquery.Client, table_ref: str) -> pd.DataFrame:
+    """Full current contents of a (small) table, e.g. dim_vehicle -- the
+    baseline seed_dimensions.py diffs its planned rows against."""
+    rows = client.query(f"SELECT * FROM `{table_ref}`").result()
+    return pd.DataFrame([dict(r) for r in rows])
+
+
+def snapshot_table(
+    client: bigquery.Client, table_ref: str, stamp: str, retention_days: int
+) -> str:
+    """Zero-copy BigQuery table snapshot of `table_ref` (billed only for data
+    that later changes), auto-expiring after `retention_days`. Returns the
+    snapshot's table ref. Restore with:
+        CREATE OR REPLACE TABLE `<table_ref>` CLONE `<snapshot_ref>`"""
+    snapshot_ref = f"{table_ref}_backup_{stamp}"
+    client.query(
+        f"""
+        CREATE SNAPSHOT TABLE `{snapshot_ref}`
+        CLONE `{table_ref}`
+        OPTIONS (
+          expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {int(retention_days)} DAY)
+        )
+        """
+    ).result()
+    return snapshot_ref
+
+
+def merge_rows(
+    client: bigquery.Client,
+    table_ref: str,
+    df: pd.DataFrame,
+    schema: list[bigquery.SchemaField],
+    key: str,
 ) -> None:
+    """Upserts `df` into `table_ref` on `key`: loads it into a temporary
+    staging table, then applies a single MERGE (atomic -- either every row
+    lands or none do). Deliberately has no WHEN NOT MATCHED BY SOURCE
+    clause: a row missing from `df` is left untouched, never deleted, so the
+    caller has to mark retirements explicitly (dim_vehicle.is_active)."""
+    staging_ref = f"{table_ref}__staging"
     job_config = bigquery.LoadJobConfig(
-        schema=DIM_VEHICLE_SCHEMA,
+        schema=schema,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    job = client.load_table_from_dataframe(
-        df, settings.dim_vehicle_table_ref, job_config=job_config
-    )
-    job.result()
+    client.load_table_from_dataframe(df, staging_ref, job_config=job_config).result()
+    try:
+        columns = [f.name for f in schema]
+        updates = ", ".join(f"T.{c} = S.{c}" for c in columns if c != key)
+        client.query(
+            f"""
+            MERGE `{table_ref}` T
+            USING `{staging_ref}` S
+            ON T.{key} = S.{key}
+            WHEN MATCHED THEN UPDATE SET {updates}
+            WHEN NOT MATCHED THEN INSERT ({", ".join(columns)})
+              VALUES ({", ".join(f"S.{c}" for c in columns)})
+            """
+        ).result()
+    finally:
+        client.delete_table(staging_ref, not_found_ok=True)
 
 
 def get_manual_overrides(client: bigquery.Client, settings: Settings) -> pd.DataFrame:

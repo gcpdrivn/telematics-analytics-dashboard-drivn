@@ -1,40 +1,39 @@
-"""Seeds dim_customer / dim_vehicle from the same customer facts hardcoded in
-Analysis/generate_presentation_report.py, so the backend can join against
-real BigQuery tables instead of a Python dict.
+"""Syncs dim_customer / dim_vehicle from the Fleetx vehicle export
+(Vehicle_Update_uploader.xlsx), safely:
 
-FreshBus/ZingBus are the script's literal enumerated plate lists. BillionE is
-NOT hardcoded here -- the script identifies it via
-`Base License Plate.startswith('MH02')`, so this seed reproduces that as a
-live query against utilization_daily (requires utilization data to already
-be ingested) rather than a list that could silently miss a new truck.
-
-Safe to re-run: both tables are WRITE_TRUNCATE (full replace), not append.
+1. Validates the export (readable, expected columns, non-empty, at least one
+   vehicle carrying a known customer tag) -- aborts otherwise.
+2. Plans the complete target state (dimension_sync.plan_vehicles): customer
+   from each vehicle's Fleetx tag, hand-entered data preserved, vehicles
+   missing from the export planned as deactivated rather than deleted.
+3. Prints a preview of every add / change / deactivation / warning.
+4. Writes nothing without explicit confirmation (an interactive "yes", or
+   --yes); --dry-run stops after the preview.
+5. Snapshots both tables (30-day BigQuery snapshots) before writing.
+6. Applies the plan as an atomic MERGE -- rows are only ever inserted or
+   updated, never deleted.
+7. Immediately backfills the full history of every added/reactivated vehicle
+   (vehicle_backfill.backfill), so they show on the dashboard right away.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import sys
+from typing import Callable
 
 import pandas as pd
+from google.api_core.exceptions import NotFound
 
-from ingestion import bq_client, fleetx_vehicle_map, vehicle_master
+from ingestion import bq_client, dimension_sync, fleetx_vehicle_map, vehicle_backfill, vehicle_master
 from ingestion.config import Settings
 from ingestion.odometer_resolver import GARBAGE_ABS_THRESHOLD_KM, OVERFLOW_SENTINEL_KM
+from ingestion.schema import DIM_CUSTOMER_SCHEMA, DIM_VEHICLE_SCHEMA
 
 logger = logging.getLogger(__name__)
 
-FRESHBUS_PLATES = [
-    "AP39WN7273", "AP39WN7275", "AP39WN7276", "AP39WN7280", "AP39WN7281",
-    "AP39WN7301", "AP39WN7302", "AP39WN7305", "AP39WN7306", "AP39WN7322",
-]
-
-ZINGBUS_PLATES = [
-    "DL1PD9284", "DL1PD9369", "DL1PD9309", "DL1PD8669",
-    "DL1PD8652", "HR55AY7626", "HR55AY9237", "DL1PD8523", "DL1PD8509",
-    "DL01PD9317",
-]
-
-BILLIONE_PLATE_PREFIX = "MH02"
+BACKUP_RETENTION_DAYS = 30
 
 # DL1PD9284's uploader-labeled 'OBD' device (2494780) is confirmed dead --
 # zero trips over a 46-day live check, while its API/AIS140 device
@@ -96,259 +95,221 @@ def _derive_starting_odometer_by_plate(odometer_df: pd.DataFrame) -> dict[str, f
     return result
 
 
-DIM_CUSTOMERS = [
-    {
-        "customer_name": "FreshBus",
-        "oem": "Azad (Bus)",
-        "routes_description": "Guntur - Hyderabad, Guntur - Vizag",
-    },
-    {
-        "customer_name": "ZingBus",
-        "oem": "JBM / Azad (Bus)",
-        "routes_description": "Delhi - Dehradun, Delhi - Amritsar",
-    },
-    {
-        "customer_name": "BillionE",
-        "oem": "TATA (Truck)",
-        "routes_description": "Rajasthan - Surat",
-    },
-]
-
-_KNOWN_CUSTOMER_NAMES = {c["customer_name"] for c in DIM_CUSTOMERS}
-
-# The uploader file's free-text 'tags' column doesn't match these customers'
-# canonical dim_customer names -- fold known spelling/casing variants into
-# the existing customer instead of creating a duplicate (e.g. a vehicle
-# tagged "BILLION ELECTRIC MOBILITY" is BillionE, not a new customer).
-_CUSTOMER_TAG_ALIASES = {
-    "FRESHBUS": "FreshBus",
-    "ZINGBUS": "ZingBus",
-    "BILLION ELECTRIC MOBILITY": "BillionE",
-    "BILLIONE": "BillionE",
-}
+class SyncAborted(RuntimeError):
+    """Raised when the sync refuses to run (bad input) or isn't confirmed.
+    Nothing has been written when this is raised."""
 
 
-def _canonical_customer_name(tag: str) -> str:
-    return _CUSTOMER_TAG_ALIASES.get(tag.upper(), tag)
+def _read_current(client, table_ref: str, dry_run: bool) -> pd.DataFrame:
+    try:
+        return bq_client.get_table_rows(client, table_ref)
+    except NotFound:
+        if dry_run:
+            return pd.DataFrame()
+        raise
 
 
-def run(settings: Settings) -> None:
-    client = bq_client.get_client(settings)
-    bq_client.ensure_schema(client, settings)
+def _vehicle_load_frame(rows: pd.DataFrame) -> pd.DataFrame:
+    df = rows.copy()
+    df["fleetx_id"] = df["fleetx_id"].astype("Int64")
+    df["starting_odometer"] = df["starting_odometer"].astype("float64")
+    df["is_active"] = df["is_active"].astype("boolean")
+    for col in ("first_seen_at", "deactivated_at"):
+        df[col] = pd.to_datetime(df[col], utc=True)
+    return df
 
-    billione_plates = bq_client.get_distinct_plates_by_prefix(
-        client, settings, BILLIONE_PLATE_PREFIX
+
+def _confirm(
+    plan: dimension_sync.Plan,
+    assume_yes: bool,
+    interactive: bool,
+    prompt: Callable[[str], str],
+) -> None:
+    if assume_yes:
+        logger.info("--yes given: applying without prompting.")
+        return
+    if not interactive:
+        raise SyncAborted(
+            "Changes need explicit confirmation, but there's no terminal to ask on. "
+            "Review the preview above and re-run with --yes to apply it."
+        )
+    question = "Apply these changes? Type 'yes' to continue: "
+    if plan.deactivated:
+        question = (
+            f"{len(plan.deactivated)} vehicle(s) will be DEACTIVATED. "
+            "Type 'yes' to apply everything above: "
+        )
+    if prompt(question).strip().lower() != "yes":
+        raise SyncAborted("Not confirmed -- nothing was written.")
+
+
+def _refresh_starting_odometer(
+    client, settings: Settings, planned: pd.DataFrame, rows_by_plate: dict[str, int]
+) -> None:
+    """starting_odometer is derived from utilization_daily_api, which had no
+    rows for a brand-new vehicle when the plan was made -- re-derive it now
+    that the backfill has loaded its history, and write just those rows, so
+    the next sync doesn't report it as a change."""
+    plates = [p for p, n in rows_by_plate.items() if n]
+    if not plates:
+        return
+    derived = _derive_starting_odometer_by_plate(bq_client.get_odometer_rows_by_plate(client, settings))
+    rows = planned[planned["base_license_plate"].isin(plates)].copy()
+    rows["starting_odometer"] = [
+        derived.get(p) if derived.get(p) is not None else cur
+        for p, cur in zip(rows["base_license_plate"], rows["starting_odometer"])
+    ]
+    changed = rows[rows["starting_odometer"].notna()]
+    if changed.empty:
+        return
+    bq_client.merge_rows(
+        client, settings.dim_vehicle_table_ref, _vehicle_load_frame(changed), DIM_VEHICLE_SCHEMA, "base_license_plate"
     )
-    if not billione_plates:
-        logger.warning(
-            "No plates found matching '%s%%' in %s -- has utilization data "
-            "been ingested yet? BillionE will be seeded with zero vehicles.",
-            BILLIONE_PLATE_PREFIX,
-            settings.utilization_table_ref,
+
+
+def run(
+    settings: Settings,
+    *,
+    dry_run: bool = False,
+    assume_yes: bool = False,
+    interactive: bool | None = None,
+    prompt: Callable[[str], str] = input,
+    client=None,
+    backfill: bool = True,
+    backfill_fn: Callable | None = None,
+) -> str:
+    """Returns 'no-changes', 'dry-run' or 'applied'; raises SyncAborted (or
+    fleetx_vehicle_map.ExportFileError) without writing anything otherwise."""
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    client = client or bq_client.get_client(settings)
+
+    try:
+        export, skipped_non_plate = fleetx_vehicle_map.read_export_vehicles(
+            settings.fleetx_vehicle_map_file
+        )
+    except fleetx_vehicle_map.ExportFileError as exc:
+        raise SyncAborted(f"Vehicle export rejected: {exc}") from exc
+    if not any(dimension_sync.map_tag(t) for v in export.values() for t in v.tags):
+        raise SyncAborted(
+            f"No vehicle in '{settings.fleetx_vehicle_map_file.name}' carries a known customer "
+            "tag -- refusing to sync against it (wrong or corrupt export?)."
         )
 
-    vehicle_rows = (
-        [{"base_license_plate": p, "customer_name": "FreshBus"} for p in FRESHBUS_PLATES]
-        + [{"base_license_plate": p, "customer_name": "ZingBus"} for p in ZINGBUS_PLATES]
-        + [{"base_license_plate": p, "customer_name": "BillionE"} for p in billione_plates]
-    )
+    if not dry_run:
+        # Non-destructive: creates missing tables / adds new NULLABLE columns.
+        bq_client.ensure_schema(client, settings)
+    current_vehicles = _read_current(client, settings.dim_vehicle_table_ref, dry_run)
+    current_customers = _read_current(client, settings.dim_customer_table_ref, dry_run)
 
-    # DIM_CUSTOMERS' oem is customer-level and still carries a "(Bus)"/"(Truck)"
-    # annotation (e.g. "TATA (Truck)") -- clean it the same way the vehicle
-    # master file's oem column is cleaned, so a vehicle falling back to this
-    # (not yet in the master file) doesn't get an uncleaned value.
-    customer_oem = {c["customer_name"]: vehicle_master.clean_oem(c["oem"]) for c in DIM_CUSTOMERS}
-
-    # The vehicle master spreadsheet (hand-filled OEM/type/model/install date)
-    # is the preferred source whenever a plate is in it, so a reseed never
-    # wipes out manually entered data. Plates missing from it (e.g. a brand
-    # new truck not yet added to the sheet) fall back to telemetry-derived
-    # oem/type/model, with device_installation_date left NULL -- there's no
-    # telemetry field that could supply it.
-    master_by_plate: dict[str, dict] = {}
+    master: dict[str, dict] = {}
     if settings.dim_vehicle_master_file.exists():
         master_df = vehicle_master.read_and_clean_vehicle_master(settings.dim_vehicle_master_file)
-        master_by_plate = master_df.set_index("base_license_plate").to_dict("index")
-        logger.info(
-            "Loaded %d row(s) from vehicle master file '%s'.",
-            len(master_df),
-            settings.dim_vehicle_master_file.name,
-        )
+        master = master_df.set_index("base_license_plate").to_dict("index")
     else:
         logger.warning(
-            "Vehicle master file '%s' not found -- oem/vehicle_type/vehicle_model "
-            "will be derived from telemetry, device_installation_date left NULL "
-            "for every vehicle.",
+            "Vehicle master file '%s' not found -- relying on existing table values and derived data.",
             settings.dim_vehicle_master_file,
         )
 
-    # New vehicles present in the Fleetx uploader export but not in any known
-    # roster -- mostly a large BillionE truck expansion plus two new
-    # customers (AVG LOGISTICS, SWITCHLABS). Onboarded now so the API
-    # pipeline covers them from day one, since they have no Excel history to
-    # backfill. A handful of otherwise-valid new plates have no customer tag
-    # filled in on the Fleetx side (and vehicles not yet plated at all --
-    # chassis numbers, VINs -- are never discovered here in the first
-    # place); both are skipped rather than guessed.
-    if settings.fleetx_vehicle_map_file.exists():
-        known_plates = {r["base_license_plate"] for r in vehicle_rows}
-        discovered = fleetx_vehicle_map.discover_new_vehicles(
-            settings.fleetx_vehicle_map_file, known_plates
-        )
-        onboarded = 0
-        for plate, resolution in discovered.items():
-            if resolution.tags is None:
-                logger.warning(
-                    "%s: new plate found in the uploader file but has no "
-                    "customer tag -- skipped, not onboarded.",
-                    plate,
-                )
-                continue
-            customer_name = _canonical_customer_name(resolution.tags)
-            oem = vehicle_master.clean_oem(resolution.vehicle_maker)
-            vehicle_rows.append({"base_license_plate": plate, "customer_name": customer_name})
-            master_by_plate[plate] = {
-                "customer_name": customer_name,
-                "oem": oem,
-                "vehicle_type": resolution.vehicle_type,
-                "vehicle_model": resolution.vehicle_model,
-                "device_installation_date": None,
-            }
-            onboarded += 1
-        logger.info("Onboarded %d new vehicle(s) from the uploader file.", onboarded)
-
-    missing_plates = [
-        r["base_license_plate"] for r in vehicle_rows if r["base_license_plate"] not in master_by_plate
-    ]
-    type_model_by_plate = _derive_type_model_by_plate(
-        bq_client.get_vehicle_type_model_rows(client, settings, missing_plates)
+    candidate_plates = sorted(
+        set(export) | set(current_vehicles.get("base_license_plate", pd.Series(dtype=str)).astype(str))
     )
-
-    # Recomputed fresh for every vehicle on every run -- fully derivable from
-    # telemetry, same as vehicle_type/vehicle_model above, so (unlike
-    # device_installation_date) it needs no external-file protection against
-    # a WRITE_TRUNCATE reseed wiping it out.
-    starting_odometer_by_plate = _derive_starting_odometer_by_plate(
+    telemetry = _derive_type_model_by_plate(
+        bq_client.get_vehicle_type_model_rows(
+            client, settings, [p for p in candidate_plates if p not in master]
+        )
+    )
+    starting_odometer = _derive_starting_odometer_by_plate(
         bq_client.get_odometer_rows_by_plate(client, settings)
     )
 
-    # Fleetx vehicleId per plate (for calling the Fleetx API), resolved from
-    # the uploader file's per-device 'group' the same way transform.py picks
-    # OBD over DashCam rows -- see fleetx_vehicle_map.py for why Realtime
-    # Analytics' own 'merged' vehicleId can't be used for this instead.
-    fleetx_id_by_plate: dict[str, int | None] = {}
-    if settings.fleetx_vehicle_map_file.exists():
-        all_plates = [r["base_license_plate"] for r in vehicle_rows]
-        resolutions = fleetx_vehicle_map.resolve_fleetx_ids(
-            settings.fleetx_vehicle_map_file, all_plates
-        )
-        for plate, resolution in resolutions.items():
-            fleetx_id_by_plate[plate] = resolution.fleetx_id
-            if resolution.fleetx_id is None:
-                logger.warning(
-                    "%s: could not resolve a Fleetx vehicleId (%s) -- fleetx_id left NULL.",
-                    plate,
-                    resolution.reason,
-                )
-        for plate, override_id in FLEETX_ID_MANUAL_OVERRIDES.items():
-            if plate in fleetx_id_by_plate and fleetx_id_by_plate[plate] != override_id:
-                logger.info(
-                    "%s: fleetx_id manually overridden to %d (was %s).",
-                    plate, override_id, fleetx_id_by_plate[plate],
-                )
-                fleetx_id_by_plate[plate] = override_id
-
-        # The MH02-prefix match is a proxy for "a BillionE truck we don't
-        # have a manual list for" -- it isn't actually customer-specific, so
-        # a different customer's fleet sharing the same plate series fools
-        # it. Confirmed for MH02GS5194-5198: swept into BillionE by prefix
-        # (they already had Excel history under it), but the uploader file
-        # explicitly tags them SWITCHLABS. Correct customer_name from that
-        # tag when it disagrees -- FreshBus/ZingBus are deliberate manual
-        # rosters and not touched here.
-        billione_plate_set = set(billione_plates)
-        for row in vehicle_rows:
-            plate = row["base_license_plate"]
-            if plate not in billione_plate_set:
-                continue
-            resolution = resolutions.get(plate)
-            if resolution is None or resolution.tags is None:
-                continue
-            corrected = _canonical_customer_name(resolution.tags)
-            if corrected != row["customer_name"]:
-                logger.warning(
-                    "%s: dynamically assigned to BillionE via the '%s' plate "
-                    "prefix, but the uploader file tags it '%s' -- correcting "
-                    "customer_name to '%s'.",
-                    plate, BILLIONE_PLATE_PREFIX, resolution.tags, corrected,
-                )
-                row["customer_name"] = corrected
-    else:
-        logger.warning(
-            "Fleetx vehicle map file '%s' not found -- fleetx_id left NULL for every vehicle.",
-            settings.fleetx_vehicle_map_file,
-        )
-
-    for row in vehicle_rows:
-        row["fleetx_id"] = fleetx_id_by_plate.get(row["base_license_plate"])
-        plate = row["base_license_plate"]
-        row["starting_odometer"] = starting_odometer_by_plate.get(plate)
-        master_row = master_by_plate.get(plate)
-        if master_row is not None:
-            if master_row["customer_name"] != row["customer_name"]:
-                logger.warning(
-                    "%s: vehicle master file assigns customer '%s' but the "
-                    "roster assigns '%s' -- keeping the roster's customer, "
-                    "using the master file's oem/type/model/install date.",
-                    plate,
-                    master_row["customer_name"],
-                    row["customer_name"],
-                )
-            row["oem"] = master_row["oem"]
-            row["vehicle_type"] = master_row["vehicle_type"]
-            row["vehicle_model"] = master_row["vehicle_model"]
-            row["device_installation_date"] = master_row["device_installation_date"]
-        else:
-            derived = type_model_by_plate.get(plate, {})
-            row["oem"] = customer_oem.get(row["customer_name"])
-            row["vehicle_type"] = derived.get("vehicle_type")
-            row["vehicle_model"] = derived.get("vehicle_model")
-            row["device_installation_date"] = None
-
-    # Collected once, here, from the final vehicle_rows -- after the
-    # BillionE-prefix correction above and the oem merge just above -- so a
-    # customer discovered either via a brand-new plate or via a corrected
-    # customer_name on an already-known plate (like SWITCHLABS) is handled
-    # the same way, from real per-vehicle oem data rather than two separate
-    # partial tracking passes.
-    new_customer_names = sorted(
-        {r["customer_name"] for r in vehicle_rows if r["customer_name"] not in _KNOWN_CUSTOMER_NAMES}
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    vehicle_plan = dimension_sync.plan_vehicles(
+        dimension_sync.VehicleInputs(
+            current=current_vehicles,
+            export=export,
+            master=master,
+            telemetry_type_model=telemetry,
+            starting_odometer=starting_odometer,
+            fleetx_id_overrides=FLEETX_ID_MANUAL_OVERRIDES,
+        ),
+        now,
     )
-    new_customer_rows = []
-    for name in new_customer_names:
-        oems = [r["oem"] for r in vehicle_rows if r["customer_name"] == name and r["oem"]]
-        new_customer_rows.append(
+    customer_plan = dimension_sync.plan_customers(
+        current_customers, set(vehicle_plan.rows["customer_name"].dropna())
+    )
+
+    active = current_vehicles.get("is_active", pd.Series(dtype=object))
+    print(
+        dimension_sync.render_plan(
+            vehicle_plan,
+            customer_plan,
             {
-                "customer_name": name,
-                "oem": pd.Series(oems).mode().iloc[0] if oems else None,
-                "routes_description": None,
-            }
+                "export_file": settings.fleetx_vehicle_map_file,
+                "export_vehicles": len(export),
+                "export_skipped_non_plate": skipped_non_plate,
+                "current_total": len(current_vehicles),
+                "current_active": len(current_vehicles) - int(active.map(lambda v: v is False).sum()),
+            },
         )
-
-    customer_df = pd.DataFrame(DIM_CUSTOMERS + new_customer_rows)
-    vehicle_df = pd.DataFrame(vehicle_rows)
-
-    bq_client.load_dim_customer_rows(client, settings, customer_df)
-    bq_client.load_dim_vehicle_rows(client, settings, vehicle_df)
-
-    logger.info(
-        "Seeded %d customer(s) (%d new) and %d vehicle(s) "
-        "(FreshBus: %d, ZingBus: %d, BillionE: %d, other new: %d)",
-        len(customer_df),
-        len(new_customer_rows),
-        len(vehicle_df),
-        len(FRESHBUS_PLATES),
-        len(ZINGBUS_PLATES),
-        len(billione_plates),
-        len(vehicle_df) - len(FRESHBUS_PLATES) - len(ZINGBUS_PLATES) - len(billione_plates),
     )
+
+    if not vehicle_plan.has_changes and not customer_plan.has_changes:
+        return "no-changes"
+    if dry_run:
+        print("\nDry run -- nothing written.")
+        return "dry-run"
+
+    _confirm(vehicle_plan, assume_yes, interactive, prompt)
+
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    backups = []
+    for table_ref, current in (
+        (settings.dim_customer_table_ref, current_customers),
+        (settings.dim_vehicle_table_ref, current_vehicles),
+    ):
+        if not current.empty:
+            backups.append(
+                (table_ref, bq_client.snapshot_table(client, table_ref, stamp, BACKUP_RETENTION_DAYS))
+            )
+
+    bq_client.merge_rows(
+        client, settings.dim_customer_table_ref, customer_plan.rows, DIM_CUSTOMER_SCHEMA, "customer_name"
+    )
+    bq_client.merge_rows(
+        client,
+        settings.dim_vehicle_table_ref,
+        _vehicle_load_frame(vehicle_plan.rows),
+        DIM_VEHICLE_SCHEMA,
+        "base_license_plate",
+    )
+
+    print(
+        f"\nApplied: {len(vehicle_plan.added)} added, {len(vehicle_plan.changed)} changed, "
+        f"{len(vehicle_plan.deactivated)} deactivated, {len(vehicle_plan.reactivated)} reactivated, "
+        f"{len(customer_plan.added)} customer(s) added."
+    )
+    if backups:
+        print(f"Backups (kept {BACKUP_RETENTION_DAYS} days). To undo, run in BigQuery:")
+        for table_ref, snapshot_ref in backups:
+            print(f"  CREATE OR REPLACE TABLE `{table_ref}` CLONE `{snapshot_ref}`;")
+
+    rows = vehicle_plan.rows.set_index("base_license_plate")
+    onboarded = vehicle_plan.added + vehicle_plan.reactivated
+    to_backfill = [p for p in onboarded if pd.notna(rows.loc[p, "fleetx_id"])]
+    no_device = sorted(set(onboarded) - set(to_backfill))
+    if no_device:
+        print(f"\nNo Fleetx device resolved for {', '.join(no_device)} -- no history to pull.")
+    if to_backfill and backfill:
+        print(f"\nPulling history for {len(to_backfill)} new/reactivated vehicle(s)...")
+        backfill_fn = backfill_fn or vehicle_backfill.backfill
+        report = backfill_fn(settings, to_backfill, client=client)
+        print(report.summary())
+        _refresh_starting_odometer(client, settings, vehicle_plan.rows, report.rows_by_plate)
+    elif to_backfill:
+        print(
+            "\nHistory not pulled (--no-backfill). To pull it: uv run backfill-vehicles "
+            + " ".join(to_backfill)
+        )
+    return "applied"

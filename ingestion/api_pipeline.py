@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import pandas as pd
@@ -69,12 +70,25 @@ def run(
     start_date: dt.date,
     end_date: dt.date,
     dry_run: bool = False,
+    plates: Collection[str] | None = None,
 ) -> list[VehicleResult]:
+    """`plates` limits the run to those vehicles (a per-vehicle backfill):
+    only they are fetched, and the scoped replace in BigQuery deletes only
+    their rows -- and only for the ones whose fetch succeeded, so a failed
+    fetch never blanks a vehicle's existing data."""
     client = bq_client.get_client(settings)
     if not dry_run:
         bq_client.ensure_utilization_api_table(client, settings)
 
     vehicles = bq_client.get_vehicle_fleetx_ids(client, settings)
+    if plates is not None:
+        wanted = set(plates)
+        vehicles = [(p, fid) for p, fid in vehicles if p in wanted]
+        missing = sorted(wanted - {p for p, _ in vehicles})
+        if missing:
+            logger.warning(
+                "No active dim_vehicle row with a fleetx_id for %s -- not fetched.", ", ".join(missing)
+            )
     logger.info(
         "Pulling trips for %d vehicle(s), %s to %s", len(vehicles), start_date, end_date
     )
@@ -175,8 +189,11 @@ def run(
         logger.info("[dry-run] Would load %d row(s) into %s", len(combined), settings.utilization_api_table_ref)
         return results
 
+    fetched_plates = None
+    if plates is not None:
+        fetched_plates = [r.base_license_plate for r in results if r.status != "failed"]
     bq_client.load_utilization_api_rows(
-        client, settings, combined, start_date, end_date + DATE_TOLERANCE
+        client, settings, combined, start_date, end_date + DATE_TOLERANCE, plates=fetched_plates
     )
     logger.info("Loaded %d row(s) into %s", len(combined), settings.utilization_api_table_ref)
     return results

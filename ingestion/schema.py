@@ -74,18 +74,16 @@ DIM_CUSTOMER_SCHEMA = [
     bigquery.SchemaField("routes_description", "STRING", mode="NULLABLE"),
 ]
 
-# One row per plate -> customer. FreshBus/ZingBus rows are the enumerated
-# plate lists from the script; BillionE rows are discovered from
-# utilization_daily (base_license_plate LIKE 'MH02%') rather than hardcoded,
-# reproducing the script's startswith('MH02') rule as real rows.
+# One row per plate -> customer, synced by ingestion/seed_dimensions.py from
+# the Fleetx vehicle export: customer_name comes from the vehicle's Fleetx
+# customer tag (see dimension_sync.CUSTOMER_TAGS). Rows are never deleted --
+# a vehicle that drops out of the export is marked is_active = FALSE so its
+# history stays attributable on the dashboard.
 #
-# oem/vehicle_type/vehicle_model are seeded from derived data (dim_customer's
-# oem, and the same mode-of-Vehicle-Type / first-non-null-Vehicle-Model logic
-# backend/metrics.py uses) so a full-refresh reseed doesn't need manual input
-# to stay populated. device_installation_date has no derivable source --
-# it's manually maintained (filled in from a vehicle master spreadsheet) and
-# seed_dimensions.py always writes it as NULL; nothing here should overwrite
-# a value entered directly in BigQuery.
+# oem/vehicle_type/vehicle_model/device_installation_date prefer the
+# hand-maintained dim_vehicle_master.xlsx, then whatever is already in this
+# table, and only then derived values -- a sync never overwrites a filled-in
+# value with a blank or a guess.
 DIM_VEHICLE_SCHEMA = [
     bigquery.SchemaField("base_license_plate", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("customer_name", "STRING", mode="REQUIRED"),
@@ -99,7 +97,13 @@ DIM_VEHICLE_SCHEMA = [
     bigquery.SchemaField("fleetx_id", "INT64", mode="NULLABLE",
                           description="Fleetx vehicleId for this plate's primary (non-DashCam) device, used to call the Fleetx API. Sourced from Vehicle_Update_uploader.xlsx via fleetx_vehicle_map.py -- NULL where the mapping is missing or ambiguous."),
     bigquery.SchemaField("starting_odometer", "FLOAT64", mode="NULLABLE",
-                          description="Vehicle's first-ever valid Opening/Closing Odometer reading from utilization_daily_api -- pre-existing mileage from before this fleet's telemetry began. NULL if no valid reading was ever recorded (garbage/sentinel on every row). Recomputed fresh on every seed_dimensions run, same as vehicle_type/vehicle_model."),
+                          description="Vehicle's first-ever valid Opening/Closing Odometer reading from utilization_daily_api -- pre-existing mileage from before this fleet's telemetry began. NULL if no valid reading was ever recorded (garbage/sentinel on every row). Recomputed on every seed_dimensions run, but never replaced by NULL."),
+    bigquery.SchemaField("is_active", "BOOL", mode="NULLABLE",
+                          description="FALSE once the vehicle is no longer in the Fleetx vehicle export. Inactive vehicles keep their row (and history) but are no longer pulled by the API pipeline. NULL (rows from before this column existed) means active."),
+    bigquery.SchemaField("first_seen_at", "TIMESTAMP", mode="NULLABLE",
+                          description="When seed_dimensions first added this vehicle (or first ran with this column, for older rows)."),
+    bigquery.SchemaField("deactivated_at", "TIMESTAMP", mode="NULLABLE",
+                          description="When the vehicle was marked inactive; NULL while active."),
 ]
 
 # Derived/backfilled odometer-based daily distance -- one row per

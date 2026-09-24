@@ -144,13 +144,22 @@ def _confirm(
 
 
 def _refresh_starting_odometer(
-    client, settings: Settings, planned: pd.DataFrame, rows_by_plate: dict[str, int]
+    client,
+    settings: Settings,
+    planned: pd.DataFrame,
+    rows_by_plate: dict[str, int],
+    master: dict[str, dict] | None = None,
 ) -> None:
     """starting_odometer is derived from utilization_daily_api, which had no
     rows for a brand-new vehicle when the plan was made -- re-derive it now
     that the backfill has loaded its history, and write just those rows, so
     the next sync doesn't report it as a change."""
-    plates = [p for p, n in rows_by_plate.items() if n]
+    master = master or {}
+    # A manual Starting Odometer in the master sheet is already in `planned`.
+    plates = [
+        p for p, n in rows_by_plate.items()
+        if n and pd.isna((master.get(p) or {}).get("starting_odometer"))
+    ]
     if not plates:
         return
     derived = _derive_starting_odometer_by_plate(bq_client.get_odometer_rows_by_plate(client, settings))
@@ -306,7 +315,7 @@ def run(
         backfill_fn = backfill_fn or vehicle_backfill.backfill
         report = backfill_fn(settings, to_backfill, client=client)
         print(report.summary())
-        _refresh_starting_odometer(client, settings, vehicle_plan.rows, report.rows_by_plate)
+        _refresh_starting_odometer(client, settings, vehicle_plan.rows, report.rows_by_plate, master)
     elif to_backfill:
         print(
             "\nHistory not pulled (--no-backfill). To pull it: uv run backfill-vehicles "

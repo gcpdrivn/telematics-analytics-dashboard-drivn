@@ -13,7 +13,8 @@ Rules this module enforces:
   is_active = False (a *deactivation*, flagged for confirmation) and keeps
   every other field.
 - Hand-entered data wins: vehicle master sheet > value already in the table >
-  derived value. A filled-in value is never replaced by a blank.
+  derived value (starting_odometer: master sheet > derived > table, since it's
+  recomputed from telemetry). A filled-in value is never replaced by a blank.
 - Anything ambiguous (untagged, unknown tag, conflicting tags) is reported as
   an issue and resolved conservatively -- an existing vehicle keeps its
   current customer, a new one is skipped -- never guessed.
@@ -237,7 +238,11 @@ def plan_vehicles(inputs: VehicleInputs, now: dt.datetime) -> Plan:
                 master.get("device_installation_date"), existing.get("device_installation_date")
             ),
             "fleetx_id": fleetx_id,
-            "starting_odometer": _first(inputs.starting_odometer.get(plate), existing.get("starting_odometer")),
+            "starting_odometer": _first(
+                master.get("starting_odometer"),
+                inputs.starting_odometer.get(plate),
+                existing.get("starting_odometer"),
+            ),
             "is_active": in_export,
             "first_seen_at": _first(existing.get("first_seen_at"), now),
             "deactivated_at": None if in_export else _first(

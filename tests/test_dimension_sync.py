@@ -173,6 +173,18 @@ def test_filled_in_values_are_never_blanked():
     assert any("keeping current fleetx_id 555" in i for i in plan.issues)
 
 
+def test_master_starting_odometer_overrides_derived_value():
+    plan = _plan(
+        [_cur("DL1PD8677", "ZingBus", starting_odometer=0.05)],
+        {"DL1PD8677": _ev("DL1PD8677", "Zingbus")},
+        master={"DL1PD8677": {"customer_name": "ZingBus", "oem": None, "vehicle_type": None,
+                              "vehicle_model": None, "device_installation_date": None,
+                              "starting_odometer": 71539.4}},
+        starting_odometer={"DL1PD8677": 0.05},
+    )
+    assert plan.changed["DL1PD8677"] == [("starting_odometer", 0.05, 71539.4)]
+
+
 def test_new_vehicle_falls_back_to_export_and_customer_defaults():
     plan = _plan([], {"HR55BE9999": _ev("HR55BE9999", "AVG LOGISTICS", maker=None, model="RIHNO", vtype="Truck")})
     row = _row(plan, "HR55BE9999")
@@ -491,3 +503,29 @@ def test_corrupt_or_untagged_export_aborts_before_touching_bigquery(env, tmp_pat
     with pytest.raises(seed_dimensions.SyncAborted, match="known customer tag"):
         seed_dimensions.run(settings, assume_yes=True, client=object())
     assert fake.calls == []
+
+
+def test_refresh_after_backfill_respects_master_override(monkeypatch):
+    merged = []
+    monkeypatch.setattr(seed_dimensions.bq_client, "get_odometer_rows_by_plate", lambda c, s: pd.DataFrame(
+        {"base_license_plate": ["A1"], "report_date": [dt.date(2026, 9, 1)],
+         "opening_odometer": [0.05], "closing_odometer": [0.1]}))
+    monkeypatch.setattr(seed_dimensions.bq_client, "merge_rows", lambda *a: merged.append(a))
+    seed_dimensions._refresh_starting_odometer(
+        object(), SimpleNamespace(dim_vehicle_table_ref="t"),
+        pd.DataFrame([{**_cur("A1", "ZingBus"), "starting_odometer": 71539.4}]),
+        {"A1": 5}, master={"A1": {"starting_odometer": 71539.4}},
+    )
+    assert merged == []
+
+
+def test_vehicle_master_starting_odometer_column_is_optional(tmp_path):
+    from ingestion import vehicle_master
+    cols = ["Vehicle Number", "Customer Name", "OEM", "Vehicle Type", "Vehicle Model", "Device Installation Date"]
+    path = tmp_path / "m.xlsx"
+    pd.DataFrame([["A1", "ZingBus", None, None, None, None]], columns=cols).to_excel(
+        path, sheet_name=vehicle_master.SHEET_NAME, index=False)
+    assert vehicle_master.read_and_clean_vehicle_master(path)["starting_odometer"].isna().all()
+    pd.DataFrame([["A1", "ZingBus", None, None, None, None, "71,539.4"]], columns=cols + ["Starting Odometer"]).to_excel(
+        path, sheet_name=vehicle_master.SHEET_NAME, index=False)
+    assert vehicle_master.read_and_clean_vehicle_master(path)["starting_odometer"].tolist() == [71539.4]

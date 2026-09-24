@@ -9,7 +9,15 @@ import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from ingestion import api_pipeline, api_validation, bq_client, mileage, pipeline, seed_dimensions
+from ingestion import (
+    api_pipeline,
+    api_validation,
+    bq_client,
+    mileage,
+    odometer_resolver,
+    pipeline,
+    seed_dimensions,
+)
 from ingestion.config import load_settings
 
 
@@ -184,6 +192,36 @@ def main_validate_api() -> None:
     out_path = out_dir / f"comparison_{args.start_date}_{args.end_date}.csv"
     comparison.to_csv(out_path, index=False)
     print(f"\nFull row-by-row comparison written to {out_path}")
+
+
+def main_resolve_odometer() -> None:
+    """`uv run resolve-odometer` -- rebuilds odometer_daily_resolved from
+    utilization_daily_api: sanitizes known device faults (overflow sentinel,
+    garbage magnitudes, physically-impossible single-row jumps) and backfills
+    them, recording the method used per row. Always recomputes full history
+    (see ingestion/odometer_resolver.run's docstring for why) and preserves
+    any existing MANUAL_OVERRIDE rows through the recompute."""
+    parser = argparse.ArgumentParser(
+        description="Resolve/backfill odometer-based daily distance into odometer_daily_resolved."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Compute and print the fill_method/confidence breakdown but do not write to BigQuery.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable debug logging."
+    )
+    args = parser.parse_args()
+    _configure_logging(args.verbose)
+
+    settings = load_settings()
+    result = odometer_resolver.run(settings, dry_run=args.dry_run)
+
+    print(f"\n{'[dry-run] ' if args.dry_run else ''}Resolved {result['row_count']} row(s).")
+    print("  fill_method            confidence    row_count")
+    for row in result["summary"]:
+        print(f"  {row['fill_method']:<22} {row['confidence']:<12}  {row['row_count']}")
 
 
 def main_seed_dimensions() -> None:

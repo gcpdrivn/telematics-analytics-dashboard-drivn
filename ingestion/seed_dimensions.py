@@ -19,6 +19,7 @@ import pandas as pd
 
 from ingestion import bq_client, fleetx_vehicle_map, vehicle_master
 from ingestion.config import Settings
+from ingestion.odometer_resolver import GARBAGE_ABS_THRESHOLD_KM, OVERFLOW_SENTINEL_KM
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,35 @@ def _derive_type_model_by_plate(type_model_df: pd.DataFrame) -> dict[str, dict]:
             "vehicle_type": _clubbed_vehicle_type(sub["vehicle_type"]),
             "vehicle_model": model_series.iloc[0] if not model_series.empty else None,
         }
+    return result
+
+
+def _sanitize_odometer(series: pd.Series) -> pd.Series:
+    """Nulls a reading that matches the known device-firmware overflow
+    sentinel or is otherwise absurdly large -- same two constants
+    ingestion/odometer_resolver.py uses for the same purpose, reused here
+    rather than redefined."""
+    is_sentinel = (series - OVERFLOW_SENTINEL_KM).abs() < 1.0
+    is_garbage = series > GARBAGE_ABS_THRESHOLD_KM
+    return series.where(~(is_sentinel | is_garbage))
+
+
+def _derive_starting_odometer_by_plate(odometer_df: pd.DataFrame) -> dict[str, float | None]:
+    """Each vehicle's first-ever valid odometer reading -- its pre-existing
+    mileage from before this fleet's telemetry began. Prefers Opening
+    Odometer (the reading at the very start of that first valid day);
+    Closing Odometer only if Opening never has a valid reading at all."""
+    result: dict[str, float | None] = {}
+    df = odometer_df.copy()
+    df["opening_odometer"] = _sanitize_odometer(df["opening_odometer"])
+    df["closing_odometer"] = _sanitize_odometer(df["closing_odometer"])
+    for plate, sub in df.sort_values("report_date").groupby("base_license_plate"):
+        opening = sub["opening_odometer"].dropna()
+        if not opening.empty:
+            result[plate] = float(opening.iloc[0])
+            continue
+        closing = sub["closing_odometer"].dropna()
+        result[plate] = float(closing.iloc[0]) if not closing.empty else None
     return result
 
 
@@ -194,6 +224,14 @@ def run(settings: Settings) -> None:
         bq_client.get_vehicle_type_model_rows(client, settings, missing_plates)
     )
 
+    # Recomputed fresh for every vehicle on every run -- fully derivable from
+    # telemetry, same as vehicle_type/vehicle_model above, so (unlike
+    # device_installation_date) it needs no external-file protection against
+    # a WRITE_TRUNCATE reseed wiping it out.
+    starting_odometer_by_plate = _derive_starting_odometer_by_plate(
+        bq_client.get_odometer_rows_by_plate(client, settings)
+    )
+
     # Fleetx vehicleId per plate (for calling the Fleetx API), resolved from
     # the uploader file's per-device 'group' the same way transform.py picks
     # OBD over DashCam rows -- see fleetx_vehicle_map.py for why Realtime
@@ -254,6 +292,7 @@ def run(settings: Settings) -> None:
     for row in vehicle_rows:
         row["fleetx_id"] = fleetx_id_by_plate.get(row["base_license_plate"])
         plate = row["base_license_plate"]
+        row["starting_odometer"] = starting_odometer_by_plate.get(plate)
         master_row = master_by_plate.get(plate)
         if master_row is not None:
             if master_row["customer_name"] != row["customer_name"]:

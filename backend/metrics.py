@@ -163,6 +163,12 @@ def clean_and_join(
         df_clean["Base License Plate"].map(vehicle_install_date)
     )
 
+    # Pre-existing mileage before this fleet's telemetry began (see
+    # ingestion/seed_dimensions.py) -- surfaced alongside total_distance in
+    # generate_kpis_for_scope() as total_lifetime_distance.
+    vehicle_starting_odometer = dim_vehicle.set_index("base_license_plate")["starting_odometer"]
+    df_clean["Starting Odometer"] = df_clean["Base License Plate"].map(vehicle_starting_odometer)
+
     # dim_vehicle.vehicle_type/vehicle_model are the human-reviewed vehicle
     # master data (from dim_vehicle_master.xlsx) -- prefer them over the raw
     # per-day telemetry fields, which are occasionally wrong (e.g. a raw
@@ -308,6 +314,8 @@ def build_active_stats(
             active_days=("Distance", lambda s: (s > 0).sum()),
             first_date=("Report Date", "min"),
             install_date=("Device Installation Date", "first"),
+            starting_odometer=("Starting Odometer", "first"),
+            boundary_gap_sum=("Boundary Gap Distance", "sum"),
             vehicle_model=(
                 "Vehicle Model",
                 lambda s: s.dropna().iloc[0] if not s.dropna().empty else "Standard",
@@ -422,7 +430,28 @@ def generate_kpis_for_scope(
     customers_all: list[dict] | None = None,
 ) -> dict:
     n_veh = len(sub_fleet)
+    # tot_dist stays the pure per-day-attributed sum -- used below for
+    # daily_dist/per_veh_daily_dist (rates), which shouldn't be distorted by
+    # distance that isn't attributable to a specific day. Both .sum(skipna=True)
+    # calls below: a vehicle missing that figure entirely (no resolvable
+    # starting odometer, or boundary-gap distance not computed/not in
+    # odometer mode) contributes 0, not NaN.
     tot_dist = float(sub_fleet["total_distance"].sum())
+    # Real distance implied between consecutive good odometer readings that
+    # isn't attributable to any single day (a reporting-window residual or a
+    # multi-day silent gap -- see ingestion/odometer_resolver.py's
+    # _compute_boundary_gaps). It happened *during* the observation window,
+    # so -- unlike starting_odometer below -- it belongs in the operated
+    # total, not only the lifetime one.
+    boundary_gap_total = float(sub_fleet["boundary_gap_sum"].sum(skipna=True))
+    operated_distance_total = tot_dist + boundary_gap_total
+    # Pre-existing mileage a vehicle already had before this fleet's
+    # telemetry began (dim_vehicle.starting_odometer, see
+    # ingestion/seed_dimensions.py) -- added on top for a "total lifetime
+    # distance" figure, shown alongside operated_distance_total ("distance
+    # under operation") on the same KPI card.
+    starting_mileage_total = float(sub_fleet["starting_odometer"].sum(skipna=True))
+    total_lifetime_distance = operated_distance_total + starting_mileage_total
     tot_hrs = float(sub_fleet["total_hours"].sum())
     daily_dist = tot_dist / observation_days if observation_days > 0 else 0.0
     daily_hrs = tot_hrs / observation_days if observation_days > 0 else 0.0
@@ -462,7 +491,8 @@ def generate_kpis_for_scope(
 
     return {
         "total_vehicles": n_veh,
-        "total_distance": round(tot_dist),
+        "total_distance": round(operated_distance_total),
+        "total_lifetime_distance": round(total_lifetime_distance),
         "daily_distance": round(daily_dist),
         "per_veh_daily_dist": round(per_veh_daily_dist),
         "total_hours": tot_hrs,

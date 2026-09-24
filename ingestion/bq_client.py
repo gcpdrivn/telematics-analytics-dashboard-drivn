@@ -13,6 +13,7 @@ from ingestion.schema import (
     DIM_VEHICLE_SCHEMA,
     INGESTION_LOG_SCHEMA,
     MILEAGE_SOC_SCHEMA,
+    ODOMETER_RESOLVED_SCHEMA,
     UTILIZATION_SCHEMA,
 )
 
@@ -70,6 +71,35 @@ def ensure_dim_customer_table(client: bigquery.Client, settings: Settings) -> No
 def ensure_dim_vehicle_table(client: bigquery.Client, settings: Settings) -> None:
     table = bigquery.Table(settings.dim_vehicle_table_ref, schema=DIM_VEHICLE_SCHEMA)
     client.create_table(table, exists_ok=True)
+    _add_missing_columns(client, settings.dim_vehicle_table_ref, DIM_VEHICLE_SCHEMA)
+
+
+def _add_missing_columns(
+    client: bigquery.Client, table_ref: str, schema: list[bigquery.SchemaField]
+) -> None:
+    """create_table(..., exists_ok=True) is a no-op against an already-existing
+    table -- it never alters that table's live schema. So a field added to a
+    schema.py definition after the table was first created (e.g.
+    DIM_VEHICLE_SCHEMA's starting_odometer) needs an explicit ALTER TABLE, or
+    every later load_*_rows() WRITE_TRUNCATE call fails with a schema
+    mismatch. NULLABLE-only: BigQuery can't ADD COLUMN a REQUIRED field to a
+    table that may already have rows, but nothing in DIM_VEHICLE_SCHEMA (or
+    any schema this project has added a field to after the fact) needs that."""
+    live_columns = {f.name for f in client.get_table(table_ref).schema}
+    missing = [f for f in schema if f.name not in live_columns]
+    if not missing:
+        return
+    clauses = ", ".join(f"ADD COLUMN {f.name} {f.field_type}" for f in missing)
+    client.query(f"ALTER TABLE `{table_ref}` {clauses}").result()
+
+
+def ensure_odometer_resolved_table(client: bigquery.Client, settings: Settings) -> None:
+    table = bigquery.Table(
+        settings.odometer_resolved_table_ref, schema=ODOMETER_RESOLVED_SCHEMA
+    )
+    table.clustering_fields = ["base_license_plate"]
+    client.create_table(table, exists_ok=True)
+    _add_missing_columns(client, settings.odometer_resolved_table_ref, ODOMETER_RESOLVED_SCHEMA)
 
 
 def ensure_schema(client: bigquery.Client, settings: Settings) -> None:
@@ -278,6 +308,25 @@ def get_vehicle_type_model_rows(
     )
 
 
+def get_odometer_rows_by_plate(client: bigquery.Client, settings: Settings) -> pd.DataFrame:
+    """Raw (base_license_plate, report_date, opening_odometer,
+    closing_odometer) rows from utilization_daily_api for every vehicle --
+    deliberately the API table (fresher, authoritative), not utilization_daily
+    -- so seed_dimensions.py can derive each vehicle's first-ever valid
+    odometer reading (its pre-existing mileage before this fleet's telemetry
+    began), the same source ingestion/odometer_resolver.py reads."""
+    query = f"""
+        SELECT base_license_plate, report_date, opening_odometer, closing_odometer
+        FROM `{settings.utilization_api_table_ref}`
+        ORDER BY base_license_plate, report_date
+    """
+    rows = client.query(query).result()
+    return pd.DataFrame(
+        [dict(r) for r in rows],
+        columns=["base_license_plate", "report_date", "opening_odometer", "closing_odometer"],
+    )
+
+
 def load_dim_customer_rows(
     client: bigquery.Client, settings: Settings, df: pd.DataFrame
 ) -> None:
@@ -300,6 +349,63 @@ def load_dim_vehicle_rows(
     )
     job = client.load_table_from_dataframe(
         df, settings.dim_vehicle_table_ref, job_config=job_config
+    )
+    job.result()
+
+
+def get_manual_overrides(client: bigquery.Client, settings: Settings) -> pd.DataFrame:
+    """Rows a human has already corrected (fill_method = 'MANUAL_OVERRIDE'),
+    read back before load_odometer_resolved_rows() truncates the table, so
+    they can be re-inserted after the fresh computation instead of being
+    silently wiped by the next automated run. Empty (not missing) if the
+    table doesn't exist yet or has no such rows."""
+    query = f"""
+        SELECT *
+        FROM `{settings.odometer_resolved_table_ref}`
+        WHERE fill_method = 'MANUAL_OVERRIDE'
+    """
+    try:
+        rows = client.query(query).result()
+    except Exception:
+        return pd.DataFrame()
+    return pd.DataFrame([dict(row) for row in rows])
+
+
+def load_odometer_resolved_rows(
+    client: bigquery.Client, settings: Settings, df: pd.DataFrame
+) -> None:
+    """Full-refresh load (WRITE_TRUNCATE): this table is always fully
+    recomputed from utilization_daily_api, not appended to -- a reset event
+    that closes after this run should retroactively upgrade an earlier
+    DISTANCE_FALLBACK day, which only a full recompute can do. `df` must not
+    already contain MANUAL_OVERRIDE rows -- the caller (odometer_resolver.run)
+    fetches those separately via get_manual_overrides() and appends them
+    after this load so they survive the truncate."""
+    job_config = bigquery.LoadJobConfig(
+        schema=ODOMETER_RESOLVED_SCHEMA,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+    job = client.load_table_from_dataframe(
+        df, settings.odometer_resolved_table_ref, job_config=job_config
+    )
+    job.result()
+
+
+def append_odometer_resolved_rows(
+    client: bigquery.Client, settings: Settings, df: pd.DataFrame
+) -> None:
+    """WRITE_APPEND companion to load_odometer_resolved_rows(), used only to
+    re-insert preserved MANUAL_OVERRIDE rows after a truncate. Separate
+    function so the truncate/append pair is explicit at the call site rather
+    than a mode flag."""
+    if df.empty:
+        return
+    job_config = bigquery.LoadJobConfig(
+        schema=ODOMETER_RESOLVED_SCHEMA,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+    )
+    job = client.load_table_from_dataframe(
+        df, settings.odometer_resolved_table_ref, job_config=job_config
     )
     job.result()
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import threading
 import time
@@ -46,6 +47,13 @@ _UTILIZATION_RENAMES = {
     "report_date": "Report Date",
 }
 
+_ODOMETER_RESOLVED_RENAMES = {
+    "base_license_plate": "Base License Plate",
+    "report_date": "Report Date",
+    "distance_by_odometer": "Distance By Odometer",
+    "boundary_gap_distance": "Boundary Gap Distance",
+}
+
 CACHE_TTL_SECONDS = float(os.environ.get("BACKEND_CACHE_TTL_SECONDS", "300"))
 
 # Which utilization table the dashboard reads: "excel" (utilization_daily,
@@ -62,6 +70,24 @@ if UTILIZATION_SOURCE not in _VALID_UTILIZATION_SOURCES:
         f"UTILIZATION_SOURCE={UTILIZATION_SOURCE!r} is invalid -- must be one of "
         f"{sorted(_VALID_UTILIZATION_SOURCES)}."
     )
+
+# Which daily-distance number every KPI/chart/uptime-classification in this
+# backend uses: "reported" (default -- the Distance field as telemetry
+# reported it) or "odometer" (distance_by_odometer from
+# odometer_daily_resolved, a backfilled/fault-filtered number derived from
+# Closing/Opening Odometer -- see ingestion/odometer_resolver.py). Same rule
+# as UTILIZATION_SOURCE above: not a per-request toggle, read once at
+# startup, restart the service to change it. Active source is visible at
+# GET /api/health.
+_VALID_DISTANCE_SOURCES = {"reported", "odometer"}
+DISTANCE_SOURCE = os.environ.get("DISTANCE_SOURCE", "reported").strip().lower()
+if DISTANCE_SOURCE not in _VALID_DISTANCE_SOURCES:
+    raise RuntimeError(
+        f"DISTANCE_SOURCE={DISTANCE_SOURCE!r} is invalid -- must be one of "
+        f"{sorted(_VALID_DISTANCE_SOURCES)}."
+    )
+
+logger = logging.getLogger(__name__)
 
 
 class _TTLCache:
@@ -156,11 +182,13 @@ def _load_all() -> dict[str, pd.DataFrame]:
         "WHERE report_date < CURRENT_DATE('Asia/Kolkata')"
     )
 
-    # These 4 queries are independent, but run one at a time added up to
-    # ~5s of pure network/query-planning round-trips on a cold cache --
-    # BigQuery's Python client releases the GIL during the network wait, so
-    # a thread per query turns that sum into just the slowest one.
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    # These queries are independent, but run one at a time added up to ~5s of
+    # pure network/query-planning round-trips on a cold cache -- BigQuery's
+    # Python client releases the GIL during the network wait, so a thread per
+    # query turns that sum into just the slowest one. The odometer query only
+    # joins the batch when DISTANCE_SOURCE actually needs it -- no point
+    # paying for a 5th round-trip in "reported" mode.
+    with ThreadPoolExecutor(max_workers=5) as pool:
         raw_future = pool.submit(_query_df, client, utilization_sql)
         dim_vehicle_future = pool.submit(
             _query_df, client, f"SELECT * FROM `{settings.dim_vehicle_table_ref}`"
@@ -171,16 +199,33 @@ def _load_all() -> dict[str, pd.DataFrame]:
         mileage_future = pool.submit(
             _query_df, client, f"SELECT * FROM `{settings.mileage_soc_table_ref}`"
         )
+        odometer_future = (
+            pool.submit(
+                _query_df,
+                client,
+                "SELECT base_license_plate, report_date, distance_by_odometer, "
+                "boundary_gap_distance "
+                f"FROM `{settings.odometer_resolved_table_ref}`",
+            )
+            if DISTANCE_SOURCE == "odometer"
+            else None
+        )
         raw_df = raw_future.result().rename(columns=_UTILIZATION_RENAMES)
         dim_vehicle = dim_vehicle_future.result()
         dim_customer = dim_customer_future.result()
         mileage_df = mileage_future.result()
+        odometer_df = (
+            odometer_future.result().rename(columns=_ODOMETER_RESOLVED_RENAMES)
+            if odometer_future is not None
+            else None
+        )
 
     return {
         "raw_utilization": raw_df,
         "dim_vehicle": dim_vehicle,
         "dim_customer": dim_customer,
         "mileage": mileage_df,
+        "odometer_resolved": odometer_df,
     }
 
 
@@ -196,10 +241,52 @@ def refresh() -> None:
     _crosstab_cache.invalidate()
 
 
+def _apply_distance_source(df_clean: pd.DataFrame, odometer_df: pd.DataFrame) -> pd.DataFrame:
+    """Overwrites df_clean's Distance column with the resolved odometer-based
+    distance, in place of the raw reported Distance field -- the single
+    substitution point every KPI/chart/uptime-classification consumer
+    downstream inherits automatically (see the plan this implements).
+    Prefers the resolved value but falls back to the original reported
+    Distance for any row the resolver hasn't covered (a day landed after the
+    last `resolve-odometer` run, or a genuinely UNRESOLVED row) rather than
+    ever leaving a hole."""
+    odometer_df = odometer_df.copy()
+    odometer_df["Report Date"] = pd.to_datetime(odometer_df["Report Date"])
+    merged = df_clean.merge(
+        odometer_df, on=["Base License Plate", "Report Date"], how="left"
+    )
+    resolved = merged["Distance By Odometer"]
+    fallback_count = int(resolved.isna().sum())
+    if fallback_count:
+        logger.warning(
+            "%d/%d row(s) (%.1f%%) had no resolved odometer distance -- using "
+            "reported Distance for those. Run `uv run resolve-odometer` if "
+            "this looks stale.",
+            fallback_count, len(merged), 100.0 * fallback_count / len(merged),
+        )
+    df_clean = df_clean.copy()
+    df_clean["Distance"] = resolved.where(resolved.notna(), df_clean["Distance"]).to_numpy()
+    # Kept as its own column (never folded into "Distance") -- it isn't
+    # attributable to a specific day, so it shouldn't distort daily rates,
+    # active-day counts, or crosstab bands. Only summed at the KPI level
+    # (generate_kpis_for_scope) into the cumulative totals.
+    df_clean["Boundary Gap Distance"] = merged["Boundary Gap Distance"].to_numpy()
+    return df_clean
+
+
 def _clean_df(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     df_clean = metrics.clean_and_join(
         tables["raw_utilization"], tables["dim_vehicle"], tables["dim_customer"]
     )
+    if DISTANCE_SOURCE == "odometer":
+        df_clean = _apply_distance_source(df_clean, tables["odometer_resolved"])
+    else:
+        # Boundary-gap distance is derived from odometer readings, so it's
+        # only meaningful/fetched in odometer mode -- build_active_stats
+        # still expects the column to exist either way, just summing to 0
+        # here rather than enriching a "reported"-mode total with a number
+        # the dashboard isn't otherwise trusting.
+        df_clean["Boundary Gap Distance"] = float("nan")
     mileage_valid = metrics.valid_mileage_map(tables["mileage"])
     return df_clean, mileage_valid
 

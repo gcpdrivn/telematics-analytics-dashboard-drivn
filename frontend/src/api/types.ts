@@ -11,6 +11,7 @@ export type CrosstabCustomer = "All" | CustomerName
 export interface KpiSummary {
   total_vehicles: number
   total_distance: number
+  total_lifetime_distance: number
   daily_distance: number
   per_veh_daily_dist: number
   total_hours: number

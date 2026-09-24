@@ -34,6 +34,7 @@ class Settings:
     bq_mileage_soc_table: str
     bq_dim_customer_table: str
     bq_dim_vehicle_table: str
+    bq_odometer_resolved_table: str
     raw_utilization_dir: Path
     mileage_soc_file: Path
     dim_vehicle_master_file: Path
@@ -72,6 +73,13 @@ class Settings:
     def dim_vehicle_table_ref(self) -> str:
         return f"{self.dataset_ref}.{self.bq_dim_vehicle_table}"
 
+    @property
+    def odometer_resolved_table_ref(self) -> str:
+        """Derived/backfilled odometer-based daily distance -- see
+        ingestion/odometer_resolver.py. Never a source of truth for raw
+        telemetry; fully recomputable from utilization_daily_api."""
+        return f"{self.dataset_ref}.{self.bq_odometer_resolved_table}"
+
 
 def _resolve_path(env_name: str, default: str) -> Path:
     raw = os.environ.get(env_name, default)
@@ -100,6 +108,9 @@ def load_settings() -> Settings:
         ),
         bq_dim_customer_table=os.environ.get("BQ_DIM_CUSTOMER_TABLE", "dim_customer"),
         bq_dim_vehicle_table=os.environ.get("BQ_DIM_VEHICLE_TABLE", "dim_vehicle"),
+        bq_odometer_resolved_table=os.environ.get(
+            "BQ_ODOMETER_RESOLVED_TABLE", "odometer_daily_resolved"
+        ),
         raw_utilization_dir=_resolve_path(
             "RAW_UTILIZATION_DIR", "data/raw/utilization"
         ),

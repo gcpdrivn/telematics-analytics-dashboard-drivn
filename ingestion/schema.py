@@ -98,4 +98,44 @@ DIM_VEHICLE_SCHEMA = [
                           description="Date the telematics device was physically installed in this vehicle. Manually maintained -- not derivable from telemetry."),
     bigquery.SchemaField("fleetx_id", "INT64", mode="NULLABLE",
                           description="Fleetx vehicleId for this plate's primary (non-DashCam) device, used to call the Fleetx API. Sourced from Vehicle_Update_uploader.xlsx via fleetx_vehicle_map.py -- NULL where the mapping is missing or ambiguous."),
+    bigquery.SchemaField("starting_odometer", "FLOAT64", mode="NULLABLE",
+                          description="Vehicle's first-ever valid Opening/Closing Odometer reading from utilization_daily_api -- pre-existing mileage from before this fleet's telemetry began. NULL if no valid reading was ever recorded (garbage/sentinel on every row). Recomputed fresh on every seed_dimensions run, same as vehicle_type/vehicle_model."),
+]
+
+# Derived/backfilled odometer-based daily distance -- one row per
+# (base_license_plate, report_date), built by ingestion/odometer_resolver.py
+# from utilization_daily_api. Never a source of raw telemetry; fully
+# recomputable at any time, which is why every backfilled value records the
+# method that produced it rather than being indistinguishable from a real
+# reading.
+ODOMETER_RESOLVED_SCHEMA = [
+    bigquery.SchemaField("base_license_plate", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("report_date", "DATE", mode="REQUIRED"),
+    bigquery.SchemaField("opening_odometer_raw", "FLOAT64", mode="NULLABLE",
+                          description="As ingested, before any sentinel/garbage nulling."),
+    bigquery.SchemaField("closing_odometer_raw", "FLOAT64", mode="NULLABLE",
+                          description="As ingested, before any sentinel/garbage nulling."),
+    bigquery.SchemaField("opening_odometer_clean", "FLOAT64", mode="NULLABLE",
+                          description="Post-backfill value. NULL only when fill_method is UNRESOLVED, or DISTANCE_FALLBACK with no odometer anchor on either side."),
+    bigquery.SchemaField("closing_odometer_clean", "FLOAT64", mode="NULLABLE",
+                          description="Post-backfill value. NULL only when fill_method is UNRESOLVED, or DISTANCE_FALLBACK with no odometer anchor on either side."),
+    bigquery.SchemaField("distance_by_odometer", "FLOAT64", mode="NULLABLE",
+                          description="closing_odometer_clean - opening_odometer_clean, or the Distance fallback value when there's no clean odometer pair at all. NULL only for UNRESOLVED days."),
+    bigquery.SchemaField("distance_reported", "FLOAT64", mode="NULLABLE",
+                          description="The Distance field from the source utilization table for this vehicle-day, kept alongside for comparison -- not itself backfilled here."),
+    bigquery.SchemaField("boundary_gap_distance", "FLOAT64", mode="NULLABLE",
+                          description="Distance implied between this day's Opening Odometer and the immediately preceding row's Closing Odometer for this vehicle (a reporting-window artifact or a multi-day silent gap, not a device fault). Only set when both rows are RAW_VALID and the implied average rate is physically plausible over the actual elapsed time between them; NULL otherwise (including this vehicle's very first row)."),
+    bigquery.SchemaField("fill_method", "STRING", mode="REQUIRED",
+                          description="RAW_VALID | INTERPOLATED | DISTANCE_FALLBACK | MANUAL_OVERRIDE | UNRESOLVED. See ingestion/odometer_resolver.py."),
+    bigquery.SchemaField("anomaly_flags", "STRING", mode="REPEATED",
+                          description="Any of: overflow_sentinel, physically_implausible, non_monotonic, missing_reading, stuck_sensor. Empty for a clean RAW_VALID day."),
+    bigquery.SchemaField("confidence", "STRING", mode="REQUIRED",
+                          description="High | Medium | Low | Unresolved -- derived from fill_method, see odometer_resolver.py for the exact mapping."),
+    bigquery.SchemaField("notes", "STRING", mode="NULLABLE",
+                          description="Free-text explanation of how a non-RAW_VALID value was derived, e.g. which anchors were used."),
+    bigquery.SchemaField("source_table", "STRING", mode="REQUIRED",
+                          description="Which utilization table this run read from, e.g. 'utilization_daily_api'."),
+    bigquery.SchemaField("resolver_version", "STRING", mode="REQUIRED",
+                          description="Identifies which version of the resolution logic produced this row, so a future change in the algorithm is distinguishable from a data change."),
+    bigquery.SchemaField("resolved_at", "TIMESTAMP", mode="REQUIRED"),
 ]

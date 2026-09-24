@@ -34,7 +34,8 @@ export function KpiCards({ kpi }: { kpi: KpiSummary }) {
         <div className="kpi-sub">
           ⚡ {formatIndian(kpi.per_veh_daily_dist)} {kpi.dist_unit_sub}
         </div>
-        <div className="kpi-prior">Total: {formatIndian(kpi.total_distance)} km</div>
+        <div className="kpi-prior">Under Operation: {formatIndian(kpi.total_distance)} km</div>
+        <div className="kpi-prior">Total Lifetime Distance: {formatIndian(kpi.total_lifetime_distance)} km</div>
       </div>
 
       <div className="kpi-box">

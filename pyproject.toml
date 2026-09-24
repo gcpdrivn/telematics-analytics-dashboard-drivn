@@ -23,6 +23,7 @@ seed-dimensions = "ingestion.cli:main_seed_dimensions"
 explore-fleetx-api = "ingestion.api_explore:main"
 ingest-utilization-api = "ingestion.cli:main_ingest_api"
 validate-api-pipeline = "ingestion.cli:main_validate_api"
+resolve-odometer = "ingestion.cli:main_resolve_odometer"
 
 [build-system]
 requires = ["hatchling"]

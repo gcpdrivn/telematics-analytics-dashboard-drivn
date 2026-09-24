@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes, useLocation } from "react-router-dom"
 import { DateRangePicker } from "./components/DateRangePicker"
+import { FleetOdometerBanner } from "./components/FleetOdometerBanner"
 import { ThemeToggle } from "./components/ThemeToggle"
 import { BusesPage } from "./pages/BusesPage"
 import { CustomersPage } from "./pages/CustomersPage"
@@ -17,13 +18,14 @@ export default function App() {
   return (
     <div className="wrapper">
       <header className="header">
-        <div>
+        <div className="header-brand">
           <div className="brand-badge">
             <span className="brand-logo">
               DRIVN<span className="brand-dot" />
             </span>
             <span className="brand-tagline">Fleet Telematics</span>
           </div>
+          <FleetOdometerBanner />
         </div>
         <div className="header-controls">
           <nav className="header-segmented-nav">

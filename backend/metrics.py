@@ -259,6 +259,32 @@ def get_final_odometer(sub_df: pd.DataFrame) -> float:
     return np.nan
 
 
+def build_fleet_odometer_total(
+    df_clean: pd.DataFrame, overflow_sentinel_km: float, garbage_abs_threshold_km: float
+) -> dict:
+    """Sum of every vehicle's final odometer reading (get_final_odometer),
+    after nulling device-fault readings -- the overflow sentinel, anything
+    above garbage_abs_threshold_km, and exact zeros (seen mid-trip, e.g. an
+    Opening of 1,43,562 km with a Closing of 0 the same day). Unlike the
+    per-vehicle table's raw final_odometer, a fault row must not win just
+    because it's the latest.
+    Thresholds are passed in (from ingestion/odometer_resolver.py) rather than
+    imported here, since that module imports this one."""
+    df = df_clean[["Base License Plate", "Report Date", "Closing Odometer", "Opening Odometer"]].copy()
+    for col in ("Closing Odometer", "Opening Odometer"):
+        is_fault = (
+            ((df[col] - overflow_sentinel_km).abs() < 1.0)
+            | (df[col] > garbage_abs_threshold_km)
+            | (df[col] <= 0)
+        )
+        df[col] = df[col].where(~is_fault)
+    final_by_plate = df.groupby("Base License Plate").apply(get_final_odometer)
+    return {
+        "total_odometer": round(float(final_by_plate.sum(skipna=True))),
+        "as_of_date": df["Report Date"].max().strftime("%Y-%m-%d"),
+    }
+
+
 def resolve_total_days(
     row: pd.Series, window_start: pd.Timestamp, end_date: pd.Timestamp, observation_days: float
 ) -> float:

@@ -5,6 +5,7 @@ import type {
   CustomerAnalytics,
   CustomerName,
   DateRangeResponse,
+  FleetOdometerTotal,
   KpiSummary,
   Scope,
   TrajectoryResponse,
@@ -87,6 +88,11 @@ export function getVehicleTrajectories(
 
 export function getDateRange(): Promise<DateRangeResponse> {
   return getJSON(`/api/date-range`)
+}
+
+/** Never takes a DateRange -- the header shows this as a filter-proof figure. */
+export function getFleetOdometerTotal(): Promise<FleetOdometerTotal> {
+  return getJSON(`/api/fleet-odometer-total`)
 }
 
 export function getVehicleUptime(

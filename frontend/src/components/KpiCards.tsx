@@ -1,6 +1,6 @@
 import type { KpiSummary } from "../api/types"
 
-function formatIndian(val: number, decimals = 0): string {
+export function formatIndian(val: number, decimals = 0): string {
   if (val === null || val === undefined || Number.isNaN(val)) return "-"
   const isNeg = val < 0
   val = Math.abs(val)
@@ -35,7 +35,7 @@ export function KpiCards({ kpi }: { kpi: KpiSummary }) {
           ⚡ {formatIndian(kpi.per_veh_daily_dist)} {kpi.dist_unit_sub}
         </div>
         <div className="kpi-prior">Under Operation: {formatIndian(kpi.total_distance)} km</div>
-        <div className="kpi-prior">Total Lifetime Distance: {formatIndian(kpi.total_lifetime_distance)} km</div>
+        <div className="kpi-prior">Total Lifetime Distance Verified: {formatIndian(kpi.total_lifetime_distance)} km</div>
       </div>
 
       <div className="kpi-box">

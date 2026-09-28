@@ -218,6 +218,11 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 
 .customer-nav { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
 
+/* Compact single-row filter bar (header label + pills inline) */
+.filter-bar { display: flex; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap; padding: 0.6rem 1.25rem; }
+.filter-bar-label { font-weight: 700; font-size: 0.95rem; }
+.filter-bar .customer-nav { margin-bottom: 0; }
+
 /* Date range picker */
 .date-range-picker { position: relative; }
 .date-range-dropdown {
@@ -247,14 +252,15 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .customer-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
 
 .customer-card-header {
-  display: flex; justify-content: space-between; align-items: flex-start;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;
   margin-bottom: 0.65rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);
 }
 .customer-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.01em; color: var(--text-primary); }
 .customer-badge {
   font-size: 0.725rem; font-weight: 600; font-variant-numeric: tabular-nums;
   padding: 3px 8px; border-radius: 4px; background: var(--bg-subtle); color: var(--accent-brand);
-  border: 1px solid var(--border-subtle); white-space: nowrap;
+  border: 1px solid var(--border-subtle); text-align: right; line-height: 1.4;
+  flex-shrink: 1; min-width: 0;
 }
 .customer-route { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.85rem; display: flex; align-items: center; gap: 5px; }
 
@@ -278,10 +284,6 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .progress-track { height: 6px; background: var(--border-subtle); border-radius: 9999px; overflow: hidden; }
 .progress-bar { height: 100%; background: var(--accent-brand); border-radius: 9999px; }
 
-.customer-footer {
-  margin-top: 0.85rem; padding-top: 0.6rem; border-top: 1px solid var(--border-subtle);
-  font-size: 0.775rem; color: var(--text-secondary); line-height: 1.45;
-}
 
 /* Vehicle Uptime Calendar */
 .uptime-toolbar {

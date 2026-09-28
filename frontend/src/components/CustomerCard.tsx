@@ -1,7 +1,7 @@
 import type { CustomerProfile } from "../api/types"
 
 /** Ports report.html's .customer-card layout (header/badge, route, metric
- * pills, 2x2 stat grid, fleet-share progress bar, insight footer) -- the
+ * pills, 2x2 stat grid, fleet-share progress bar) -- the
  * original card had a lot more information density than a name+route+insight
  * line, so this restores that instead of inventing a thinner layout. */
 export function CustomerCard({ customer }: { customer: CustomerProfile }) {
@@ -13,9 +13,12 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
           <div className="customer-name">{c.customer}</div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.oem}</div>
         </div>
-        <span className="customer-badge">
-          {c.vehicle_count} Vehicles • {c.vol_tier} ({c.avg_cv_pct.toFixed(0)}% Volatility)
-        </span>
+        <div className="customer-badge">
+          <div>{c.vehicle_count} Vehicles</div>
+          <div>
+            {c.vol_tier} ({c.avg_cv_pct.toFixed(0)}% Volatility)
+          </div>
+        </div>
       </div>
 
       <div className="customer-route">📍 {c.route}</div>
@@ -40,7 +43,7 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
             📈 <b>Daily KM Volatility:</b>
           </span>
           <span className={`volatility-tag ${c.vol_class}`} style={{ fontWeight: 700 }}>
-            {c.avg_cv_pct.toFixed(1)}% ({c.vol_tier} • ±{c.avg_std_active.toFixed(0)} km/d)
+            {c.avg_cv_pct.toFixed(1)}% ({c.vol_tier})
           </span>
         </div>
       </div>
@@ -84,7 +87,6 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
         </div>
       </div>
 
-      <div className="customer-footer" dangerouslySetInnerHTML={{ __html: c.insight }} />
     </div>
   )
 }

@@ -106,11 +106,9 @@ export function CustomersPage() {
     <>
       <KpiCards kpi={kpi} />
 
-      <div className="panel">
-        <div className="panel-header">Filter by Customer</div>
-        <div className="panel-body">
-          <CustomerSelector value={customer} onChange={setCustomer} />
-        </div>
+      <div className="panel filter-bar">
+        <span className="filter-bar-label">Filter by Customer</span>
+        <CustomerSelector value={customer} onChange={setCustomer} />
       </div>
 
       <div className="panel">

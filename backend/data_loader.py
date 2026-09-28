@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
@@ -113,6 +114,7 @@ class _TTLCache:
 _cache = _TTLCache(CACHE_TTL_SECONDS)
 _derived_cache = _TTLCache(CACHE_TTL_SECONDS)
 _crosstab_cache = _TTLCache(CACHE_TTL_SECONDS)
+_soh_cache = _TTLCache(CACHE_TTL_SECONDS)
 _client: bigquery.Client | None = None
 _settings: Settings | None = None
 
@@ -239,6 +241,7 @@ def refresh() -> None:
     _cache.invalidate()
     _derived_cache.invalidate()
     _crosstab_cache.invalidate()
+    _soh_cache.invalidate()
 
 
 def _apply_distance_source(df_clean: pd.DataFrame, odometer_df: pd.DataFrame) -> pd.DataFrame:
@@ -372,3 +375,32 @@ def _build_derived(tables: dict[str, pd.DataFrame]) -> dict:
         "active_stats": active_stats,
         "observation_days": observation_days,
     }
+
+
+def _load_soh_odometer() -> pd.DataFrame:
+    """vehicle_soh_latest (the morning Realtime API ping) joined to each
+    vehicle's customer/type and its latest resolved odometer from history --
+    the latter only to flag a live odometer that disagrees with it. Empty
+    until the first `ingest-soh` run creates the table."""
+    settings = get_settings()
+    sql = f"""
+        WITH history AS (
+          SELECT base_license_plate, report_date, closing_odometer_clean,
+                 ROW_NUMBER() OVER (PARTITION BY base_license_plate ORDER BY report_date DESC) AS rn
+          FROM `{settings.odometer_resolved_table_ref}`
+          WHERE closing_odometer_clean > 0
+        )
+        SELECT s.*, d.customer_name, d.vehicle_type, d.oem, d.vehicle_model,
+               h.closing_odometer_clean AS history_odometer_km, h.report_date AS history_odometer_date
+        FROM `{settings.soh_latest_table_ref}` s
+        JOIN `{settings.dim_vehicle_table_ref}` d USING (base_license_plate)
+        LEFT JOIN history h ON h.base_license_plate = s.base_license_plate AND h.rn = 1
+    """
+    try:
+        return _query_df(get_client(), sql)
+    except NotFound:
+        return pd.DataFrame()
+
+
+def get_soh_odometer() -> pd.DataFrame:
+    return _soh_cache.get(_load_soh_odometer)

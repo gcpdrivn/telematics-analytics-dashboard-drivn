@@ -35,6 +35,7 @@ class Settings:
     bq_dim_customer_table: str
     bq_dim_vehicle_table: str
     bq_odometer_resolved_table: str
+    bq_soh_latest_table: str
     raw_utilization_dir: Path
     mileage_soc_file: Path
     dim_vehicle_master_file: Path
@@ -84,6 +85,13 @@ class Settings:
         telemetry; fully recomputable from utilization_daily_api."""
         return f"{self.dataset_ref}.{self.bq_odometer_resolved_table}"
 
+    @property
+    def soh_latest_table_ref(self) -> str:
+        """Latest battery SoH + live odometer per vehicle, upserted by the
+        morning `ingest-soh` ping of Fleetx's Realtime API -- see
+        ingestion/soh_snapshot.py."""
+        return f"{self.dataset_ref}.{self.bq_soh_latest_table}"
+
 
 def _resolve_path(env_name: str, default: str) -> Path:
     raw = os.environ.get(env_name, default)
@@ -115,6 +123,7 @@ def load_settings() -> Settings:
         bq_odometer_resolved_table=os.environ.get(
             "BQ_ODOMETER_RESOLVED_TABLE", "odometer_daily_resolved"
         ),
+        bq_soh_latest_table=os.environ.get("BQ_SOH_LATEST_TABLE", "vehicle_soh_latest"),
         raw_utilization_dir=_resolve_path(
             "RAW_UTILIZATION_DIR", "data/raw/utilization"
         ),

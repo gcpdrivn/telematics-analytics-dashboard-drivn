@@ -1,4 +1,4 @@
-"""CLI entry points: `uv run ingest-utilization`, `ingest-mileage-soc`, `seed-dimensions`."""
+"""CLI entry points: `uv run ingest-utilization`, `ingest-mileage-soc`, `seed-dimensions`, `ingest-soh`, ..."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from ingestion import (
     odometer_resolver,
     pipeline,
     seed_dimensions,
+    soh_snapshot,
     vehicle_backfill,
 )
 from ingestion.config import load_settings
@@ -255,6 +256,43 @@ def main_backfill_vehicles() -> None:
     print(report.summary())
     if report.failed:
         sys.exit(1)
+
+
+def main_ingest_soh() -> None:
+    """`uv run ingest-soh` -- the morning Realtime API ping: upserts each
+    vehicle's latest SoH and live odometer into vehicle_soh_latest."""
+    parser = argparse.ArgumentParser(
+        description="Ping Fleetx's Realtime API and upsert each vehicle's latest battery SoH and "
+        "live odometer into vehicle_soh_latest. Vehicles in the ping are updated, new ones added, "
+        "and missing ones (or missing/faulty values) keep what was last stored."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Ping and compute the upsert, but do not write to BigQuery."
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
+    args = parser.parse_args()
+    _configure_logging(args.verbose)
+
+    settings = load_settings()
+    report = soh_snapshot.run(settings, dry_run=args.dry_run)
+
+    print(
+        f"\n{'[dry-run] ' if args.dry_run else ''}Done. {len(report.updated)} vehicle(s) updated, "
+        f"{len(report.added)} added, {len(report.not_pinged)} not in today's ping (kept as stored)."
+    )
+    if report.added:
+        print(f"  Added: {', '.join(report.added)}")
+    if report.not_pinged:
+        print(f"  Not in ping: {', '.join(report.not_pinged)}")
+    if report.no_soh:
+        print(f"  No SoH reported yet: {', '.join(report.no_soh)}")
+    for plate, problem in sorted(report.odometer_rejected.items()):
+        print(f"  Odometer kept as stored for {plate}: {problem}")
+    if not args.dry_run:
+        try:
+            vehicle_backfill.refresh_dashboard_cache(settings)
+        except Exception as exc:  # the data is loaded; the TTL picks it up anyway
+            print(f"  Couldn't clear the dashboard cache ({exc}); it refreshes within 5 minutes.")
 
 
 def main_seed_dimensions() -> None:

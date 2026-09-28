@@ -14,6 +14,7 @@ from ingestion.schema import (
     INGESTION_LOG_SCHEMA,
     MILEAGE_SOC_SCHEMA,
     ODOMETER_RESOLVED_SCHEMA,
+    SOH_LATEST_SCHEMA,
     UTILIZATION_SCHEMA,
 )
 
@@ -101,6 +102,12 @@ def ensure_odometer_resolved_table(client: bigquery.Client, settings: Settings) 
     table.clustering_fields = ["base_license_plate"]
     client.create_table(table, exists_ok=True)
     _add_missing_columns(client, settings.odometer_resolved_table_ref, ODOMETER_RESOLVED_SCHEMA)
+
+
+def ensure_soh_latest_table(client: bigquery.Client, settings: Settings) -> None:
+    table = bigquery.Table(settings.soh_latest_table_ref, schema=SOH_LATEST_SCHEMA)
+    client.create_table(table, exists_ok=True)
+    _add_missing_columns(client, settings.soh_latest_table_ref, SOH_LATEST_SCHEMA)
 
 
 def ensure_schema(client: bigquery.Client, settings: Settings) -> None:
@@ -276,6 +283,31 @@ def get_vehicle_fleetx_ids(
     """
     rows = client.query(query).result()
     return [(row.base_license_plate, row.fleetx_id) for row in rows]
+
+
+def get_active_vehicles(
+    client: bigquery.Client, settings: Settings
+) -> list[tuple[str, int | None]]:
+    """(base_license_plate, fleetx_id) for every active dim_vehicle row,
+    fleetx_id or not -- the Realtime API is matched by plate, so a vehicle
+    without a resolved fleetx_id can still be found there."""
+    query = f"""
+        SELECT base_license_plate, fleetx_id
+        FROM `{settings.dim_vehicle_table_ref}`
+        WHERE COALESCE(is_active, TRUE)
+    """
+    return [(row.base_license_plate, row.fleetx_id) for row in client.query(query).result()]
+
+
+def load_soh_latest_rows(client: bigquery.Client, settings: Settings, df: pd.DataFrame) -> None:
+    """Replaces vehicle_soh_latest with `df`, the full upserted table from
+    soh_snapshot.combine() (which already carries every untouched row) --
+    one atomic load, so a failed run leaves yesterday's table as it was."""
+    job_config = bigquery.LoadJobConfig(
+        schema=SOH_LATEST_SCHEMA,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+    client.load_table_from_dataframe(df, settings.soh_latest_table_ref, job_config=job_config).result()
 
 
 def get_vehicle_type_model_rows(

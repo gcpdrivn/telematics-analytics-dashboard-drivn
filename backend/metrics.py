@@ -1038,3 +1038,69 @@ def build_vehicle_roster(active_stats: pd.DataFrame) -> list[dict]:
             }
         )
     return records
+
+
+# A live odometer this far below the vehicle's own resolved odometer history
+# is a device reset/swap (e.g. a bus with ~1.7 lakh km of history reading
+# 1,843 km live), not the vehicle's real distance -- flagged, not hidden.
+SOH_ODOMETER_DISAGREE_RATIO = 0.9
+
+
+def _iso(value) -> str | None:
+    return None if value is None or pd.isna(value) else pd.Timestamp(value).isoformat()
+
+
+def _num(value) -> float | None:
+    return None if value is None or pd.isna(value) else float(value)
+
+
+def build_soh_odometer(df: pd.DataFrame) -> dict:
+    """Latest SoH vs latest live odometer per vehicle, for the Customers
+    page's scatter. `rows` has every in-scope vehicle with both values;
+    `missing_soh` the ones whose devices haven't reported a SoH yet."""
+    if df.empty:
+        return {"rows": [], "missing_soh": [], "last_pinged_at": None}
+    df = df[df["customer_name"].isin(CUSTOMERS)].copy()
+    category = {c.name: c.category for c in _CUSTOMER_REGISTRY}
+    df["vehicle_type"] = [
+        "Truck" if t == "Heavy Puller" else (t if isinstance(t, str) and t else category[c])
+        for t, c in zip(df["vehicle_type"], df["customer_name"])
+    ]
+
+    rows, missing = [], []
+    for r in df.sort_values("base_license_plate").itertuples():
+        if pd.isna(r.soh_pct) or pd.isna(r.odometer_km):
+            missing.append({"plate": r.base_license_plate, "customer": r.customer_name, "vehicle_type": r.vehicle_type})
+            continue
+        history = _num(r.history_odometer_km)
+        notes = []
+        # The generic `soh` field (TPAPI truck devices) reads exactly 100.0
+        # on every device -- a default, not a measurement.
+        soh_placeholder = r.soh_field == "soh" and float(r.soh_pct) == 100.0
+        if soh_placeholder:
+            notes.append("SoH is the device's flat 100% default, not a measurement")
+        odometer_disagrees = history is not None and float(r.odometer_km) < history * SOH_ODOMETER_DISAGREE_RATIO
+        if odometer_disagrees:
+            notes.append(
+                f"Live odometer is far below the {history:,.0f} km in this vehicle's odometer "
+                f"history ({pd.Timestamp(r.history_odometer_date):%d %b}), likely a device reset"
+            )
+        if isinstance(r.odometer_flag, str) and r.odometer_flag:
+            notes.append(f"Latest live reading rejected ({r.odometer_flag}); showing the last good one")
+        rows.append(
+            {
+                "plate": r.base_license_plate,
+                "customer": r.customer_name,
+                "vehicle_type": r.vehicle_type,
+                "oem": None if pd.isna(r.oem) else r.oem,
+                "vehicle_model": None if pd.isna(r.vehicle_model) else r.vehicle_model,
+                "soh_pct": float(r.soh_pct),
+                "odometer_km": float(r.odometer_km),
+                "soh_reported_at": _iso(r.soh_reported_at),
+                "odometer_reported_at": _iso(r.odometer_reported_at),
+                "device": r.fleetx_device,
+                "flagged": soh_placeholder or odometer_disagrees,
+                "notes": notes,
+            }
+        )
+    return {"rows": rows, "missing_soh": missing, "last_pinged_at": _iso(df["last_pinged_at"].max())}

@@ -22,3 +22,12 @@ def customers_analytics(start_date: date | None = None, end_date: date | None = 
         "dow_profiles": metrics.build_dow_profiles(ctx["df_clean"]),
         "active_timeline": metrics.build_active_timeline(ctx["df_clean"]),
     }
+
+
+@router.get("/customers/soh-odometer")
+def customers_soh_odometer():
+    """Latest battery SoH vs latest live odometer, one point per vehicle.
+    Takes no date range: both values are "as of the last morning ping", not
+    aggregates over a window. Customer/vehicle-type filtering happens in
+    the browser -- the whole fleet is under a hundred rows."""
+    return metrics.build_soh_odometer(data_loader.get_soh_odometer())

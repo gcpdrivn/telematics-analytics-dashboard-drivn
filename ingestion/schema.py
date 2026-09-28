@@ -143,3 +143,33 @@ ODOMETER_RESOLVED_SCHEMA = [
                           description="Identifies which version of the resolution logic produced this row, so a future change in the algorithm is distinguishable from a data change."),
     bigquery.SchemaField("resolved_at", "TIMESTAMP", mode="REQUIRED"),
 ]
+
+# One row per vehicle: its latest battery SoH and live odometer, upserted
+# every morning by ingestion/soh_snapshot.py from Fleetx's Realtime API. A
+# vehicle missing from a ping, or a field a ping didn't report (or reported
+# as a known fault), keeps its last good value -- never blanked, never
+# deleted -- so the *_reported_at columns say how fresh each value is.
+SOH_LATEST_SCHEMA = [
+    bigquery.SchemaField("base_license_plate", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("fleetx_device", "STRING", mode="NULLABLE",
+                          description="Fleetx vehicleNumber of the device the values were read from, e.g. 'DL1PD8509OBD' or 'DL01PD9317_API'."),
+    bigquery.SchemaField("fleetx_vehicle_id", "INT64", mode="NULLABLE"),
+    bigquery.SchemaField("soh_pct", "FLOAT64", mode="NULLABLE",
+                          description="Battery state of health, %. NULL until a device first reports one."),
+    bigquery.SchemaField("soh_field", "STRING", mode="NULLABLE",
+                          description="Which otherAttributes alias the SoH came from: evSOH | batterySoh | evExtra.soh_percentage | soh. The generic 'soh' (TPAPI truck devices) reads a flat 100.0 on every device -- a default, not a measurement."),
+    bigquery.SchemaField("soh_reported_at", "TIMESTAMP", mode="NULLABLE",
+                          description="Device's lastUpdatedAt when soh_pct was taken."),
+    bigquery.SchemaField("odometer_km", "FLOAT64", mode="NULLABLE",
+                          description="Last accepted live totalOdometer. A reading that is a known fault (overflow sentinel, garbage magnitude) or more than 1% below the stored value is rejected and this keeps its previous value."),
+    bigquery.SchemaField("odometer_reported_at", "TIMESTAMP", mode="NULLABLE",
+                          description="Device's lastUpdatedAt when odometer_km was taken."),
+    bigquery.SchemaField("odometer_raw_km", "FLOAT64", mode="NULLABLE",
+                          description="Latest live totalOdometer exactly as reported, including rejected readings."),
+    bigquery.SchemaField("odometer_flag", "STRING", mode="NULLABLE",
+                          description="Why the latest raw reading was rejected, if it was; NULL when it was accepted."),
+    bigquery.SchemaField("first_seen_at", "TIMESTAMP", mode="REQUIRED",
+                          description="When a ping first found this vehicle."),
+    bigquery.SchemaField("last_pinged_at", "TIMESTAMP", mode="REQUIRED",
+                          description="When a ping last found this vehicle in the live feed."),
+]

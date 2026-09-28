@@ -65,6 +65,29 @@ against a bad export:
   `BACKEND_URL` is set), so they show up immediately. Skip with `--no-backfill`; retry with
   `uv run backfill-vehicles PLATE ...`.
 
+### Battery SoH (morning ping)
+
+```bash
+uv run ingest-soh --dry-run   # ping Fleetx's Realtime API, show what would change, write nothing
+uv run ingest-soh             # upsert into vehicle_soh_latest
+```
+
+Pings `GET /api/v1/analytics/live` once and stores each vehicle's latest battery SoH and live
+odometer in `vehicle_soh_latest` (one row per vehicle), which feeds the Customers page's
+"Battery State of Health vs Latest Odometer" chart. It is meant to run every morning:
+
+- DashCam devices are skipped. Of a vehicle's other devices, the one reporting a SoH wins, and
+  SoH and odometer are both read from it.
+- A vehicle seen for the first time is added. One already stored is updated, but a value is only
+  replaced by a good new one: a missing SoH, or an odometer that is a device fault (past 5 lakh
+  km) or has gone backwards by more than 1%, keeps the stored value. The raw reading and the
+  reason are still recorded (`odometer_raw_km`, `odometer_flag`).
+- A vehicle missing from the ping keeps its row untouched. Nothing is ever deleted.
+
+The dashboard draws a point hollow when its SoH is the flat 100% default some truck devices
+report, or when the live odometer is far below the vehicle's own odometer history (a device
+reset). Hovering says which.
+
 ### Layout
 
 ```
@@ -76,9 +99,10 @@ ingestion/
   seed_dimensions.py   # Safe sync of dim_customer / dim_vehicle (preview, confirm, backup, MERGE)
   dimension_sync.py    # Pure planning/diff rules for that sync, incl. CUSTOMER_TAGS
   vehicle_backfill.py  # Pulls full history for specific (newly onboarded) vehicles
+  soh_snapshot.py      # Morning Realtime API ping -> vehicle_soh_latest (SoH + live odometer)
   bq_client.py          # dataset/table provisioning, dedup lookups, loading
   pipeline.py            # orchestrates one utilization ingestion run
-  cli.py                  # `ingest-utilization` / `ingest-mileage-soc` / `seed-dimensions`
+  cli.py                  # `ingest-utilization` / `ingest-mileage-soc` / `seed-dimensions` / `ingest-soh` / ...
 data/raw/utilization/       # drop raw Excel reports here (not committed)
 data/raw/vehicle_mileage_soc.xlsx  # single benchmark workbook (not committed)
 ```

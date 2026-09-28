@@ -8,6 +8,7 @@ import type {
   FleetOdometerTotal,
   KpiSummary,
   Scope,
+  SohOdometerResponse,
   TrajectoryResponse,
   UptimeResponse,
   VehiclesResponse,
@@ -88,6 +89,11 @@ export function getVehicleTrajectories(
 
 export function getDateRange(): Promise<DateRangeResponse> {
   return getJSON(`/api/date-range`)
+}
+
+/** Never takes a DateRange -- both values are "as of the last morning ping". */
+export function getSohOdometer(): Promise<SohOdometerResponse> {
+  return getJSON(`/api/customers/soh-odometer`)
 }
 
 /** Never takes a DateRange -- the header shows this as a filter-proof figure. */

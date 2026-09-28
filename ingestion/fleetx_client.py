@@ -1,8 +1,8 @@
 """Minimal Fleetx API client (see docs/Fleetx_Drivn_API_Integration_Guide_1.pdf,
 kept locally, gitignored -- it carries live credentials).
 
-Just the pieces the ingestion pipeline needs: login and the History Report
-(per-vehicle trip data) endpoint. ingestion/api_explore.py's broader
+Just the pieces the ingestion pipeline needs: login, the History Report
+(per-vehicle trip data) endpoint, and the Realtime (live analytics) endpoint. ingestion/api_explore.py's broader
 endpoint probe imports login()/headers from here too, so there's one place
 that knows how to authenticate.
 """
@@ -68,3 +68,14 @@ def get_trips(
     )
     resp.raise_for_status()
     return resp.json().get("trips", [])
+
+
+def get_live(token: str) -> list[dict[str, Any]]:
+    """Realtime API -- the current state of every device in the account.
+    Deliberately without mergeDevices: each physical device (OBD, DashCam,
+    API tracker) comes back as its own record, so the caller picks which one
+    to trust instead of Fleetx's merge (which can pick the DashCam -- see
+    fleetx_vehicle_map.py's docstring)."""
+    resp = requests.get(f"{BASE_URL}/api/v1/analytics/live", headers=auth_headers(token), timeout=60)
+    resp.raise_for_status()
+    return resp.json().get("vehicles", [])

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
-import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getVehicleTrajectories } from "../api/client"
-import type { CrosstabResponse, CustomerAnalytics, CustomerName, KpiSummary, TrajectoryResponse } from "../api/types"
+import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getSohOdometer, getVehicleTrajectories } from "../api/client"
+import type {
+  CrosstabResponse,
+  CustomerAnalytics,
+  CustomerName,
+  KpiSummary,
+  SohOdometerResponse,
+  TrajectoryResponse,
+} from "../api/types"
 import { CustomerCard } from "../components/CustomerCard"
 import { CustomerSelector } from "../components/CustomerSelector"
 import { BoxplotChart } from "../components/CustomerCharts/BoxplotChart"
@@ -8,6 +15,7 @@ import { DailyDistanceBar } from "../components/CustomerCharts/DailyDistanceBar"
 import { ShareDonut } from "../components/CustomerCharts/ShareDonut"
 import { ActiveTimelineChart } from "../components/CustomerCharts/ActiveTimelineChart"
 import { SeasonalityChart } from "../components/CustomerCharts/SeasonalityChart"
+import { SohOdometerChart } from "../components/CustomerCharts/SohOdometerChart"
 import { ALL_CUSTOMERS } from "../components/CustomerCharts/colors"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
@@ -30,6 +38,13 @@ export function CustomersPage() {
   // roster's first customer rather than leaving it unfiltered.
   const trajCust: CustomerName = customer === "All" ? ALL_CUSTOMERS[0] : customer
   const [trajectory, setTrajectory] = useState<TrajectoryResponse | null>(null)
+
+  // Not date-ranged: SoH and odometer are both "as of the last morning ping".
+  const [soh, setSoh] = useState<SohOdometerResponse | null>(null)
+  const [sohError, setSohError] = useState<string | null>(null)
+  useEffect(() => {
+    getSohOdometer().then(setSoh).catch((e) => setSohError(String(e)))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -135,6 +150,15 @@ export function CustomersPage() {
           <div className="panel-body">
             <SeasonalityChart profiles={filteredDowProfiles} dowLabels={analytics.dow_labels} />
           </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">Battery State of Health vs Latest Odometer</div>
+        <div className="panel-body">
+          {sohError && <div className="error-box">Failed to load SoH data: {sohError}</div>}
+          {!soh && !sohError && <div className="loading">Loading SoH data…</div>}
+          {soh && <SohOdometerChart data={soh} customer={customer} />}
         </div>
       </div>
 

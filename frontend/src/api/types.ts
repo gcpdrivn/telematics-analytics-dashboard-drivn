@@ -235,3 +235,25 @@ export interface UptimeResponse {
   legend_detailed: UptimeLegendItem[]
   legend_combined: UptimeLegendItem[]
 }
+
+export interface SohOdometerPoint {
+  plate: string
+  customer: CustomerName
+  vehicle_type: "Bus" | "Truck"
+  oem: string | null
+  vehicle_model: string | null
+  soh_pct: number
+  odometer_km: number
+  soh_reported_at: string | null
+  odometer_reported_at: string | null
+  device: string
+  /** SoH is a device default, or the live odometer disagrees with history -- drawn hollow. */
+  flagged: boolean
+  notes: string[]
+}
+
+export interface SohOdometerResponse {
+  rows: SohOdometerPoint[]
+  missing_soh: { plate: string; customer: CustomerName; vehicle_type: "Bus" | "Truck" }[]
+  last_pinged_at: string | null
+}

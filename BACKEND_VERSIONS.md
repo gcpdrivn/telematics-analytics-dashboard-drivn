@@ -12,11 +12,11 @@ Check what a running backend reads: `GET /api/health` returns
 
 | | Production |
 |---|---|
-| Code | `3458852` on branch `fix/ist-trip-window` (not merged to `main` yet) |
-| Backend | Cloud Run `drivn-backend-00019-49g`, deployed 29 Sep 2026 |
-| Daily jobs | `drivn-ingest-daily` (image `sha256:7b5b96b7…`, v2 code, deployed 29 Sep); `drivn-soh-daily` (unchanged); both 08:30 IST |
+| Code | `main` at `b92f776` |
+| Backend | Cloud Run `drivn-backend-00019-49g`, from `3458852` (backend unchanged since) |
+| Daily jobs (IST) | 08:30 `drivn-ingest-daily` (from `3458852`), 08:30 `drivn-soh-daily` (unchanged), 09:00 `drivn-resolve-odometer` (from `b92f776`) |
 | Tables read | `utilization_daily_api`, `odometer_daily_resolved`, plus `dim_vehicle`, `dim_customer`, `vehicle_mileage_soc`, `vehicle_soh_latest` |
-| Data in those tables | v1 for 7 Apr – 28 Sep; v2 from 29 Sep onward (first fixed run 30 Sep 08:30 IST) |
+| Data in those tables | v1 for 7 Apr – 28 Sep; v2 from 29 Sep onward (first fixed ingest 30 Sep 08:30 IST) |
 | v2 copies | `utilization_daily_api_v2`, `odometer_daily_resolved_v2` (7 Apr – 28 Sep, not updated daily) |
 
 ## Versions
@@ -24,21 +24,24 @@ Check what a running backend reads: `GET /api/health` returns
 ### v2 — IST query window (29 Sep 2026)
 
 - **Commits:** `6b90b89` (fix + test), `3458852` (`/api/health` table
-  names), on `fix/ist-trip-window`. Base `f439e54`.
+  names), `03759ba` (resolver: 1,500 km/day, 1.5M km cap), `b92f776`
+  (excess km billing). Merged to `main` (fast-forward from `f439e54`).
 - **Fix:** `api_pipeline._to_epoch_ms` builds the Fleetx `/trips/` window at
   IST midnight. It used the host clock, so on Cloud Run (UTC) each day's
   window ran 05:30–05:30 IST and overnight trips ending before 05:30 IST
   were dropped from every day.
-- **Deployed:** `drivn-ingest-daily` and `drivn-backend-00019-49g`, both
-  built from `3458852` only (other local work in progress excluded).
+- **Deployed:** `drivn-ingest-daily` and `drivn-backend-00019-49g` from
+  `3458852`; new job `drivn-resolve-odometer` (09:00 IST daily, trigger
+  `drivn-resolve-odometer-trigger`) from `b92f776`. Before this the
+  resolver only ran when someone ran it by hand.
 - **Data:** `utilization_daily_api_v2` re-fetched from Fleetx for
   7 Apr – 28 Sep 2026; `odometer_daily_resolved_v2` rebuilt from it with the
-  resolver in the working tree (`resolver_version` 2.0.0, same as v1's).
+  resolver from `03759ba` (`resolver_version` 2.0.0, same as v1's).
 - **Difference from v1:** [versions/v2_ist_window_diff.md](versions/v2_ist_window_diff.md)
   (only 21–28 Sep changes; August identical).
 - **Pending:** copy the `_v2` tables over the production tables (back them
-  up first) so 21–28 Sep is corrected on the live dashboard; merge
-  `fix/ist-trip-window` into `main`.
+  up first) so 21–28 Sep is corrected on the live dashboard. Do it before
+  a daily ingest runs, or re-ingest from 29 Sep afterwards.
 - **Not in this version:** DL1PD8669's odometer counter reset (25 Sep) is
   uncorrected; the SoH vs odometer chart still shows ~2,400 km for it.
 
@@ -49,19 +52,11 @@ Check what a running backend reads: `GET /api/health` returns
   (Cloud Run source deploys record no commit hash).
 - **Tables:** `utilization_daily_api` (bulk backfill 7 Apr – 20 Sep loaded
   22 Sep; then one day per night by `drivn-ingest-daily`),
-  `odometer_daily_resolved` (last rebuilt 29 Sep from this machine with
-  uncommitted resolver changes: 1,500 km/day rule, 1.5M km cap).
+  `odometer_daily_resolved` (rebuilt 29 Sep with the resolver that is now
+  `03759ba`: 1,500 km/day rule, 1.5M km cap).
 - **Backend env:** `UTILIZATION_SOURCE=api`, `DISTANCE_SOURCE=odometer`.
 - **Known issue:** days loaded by the Cloud Run job (21 Sep onward) miss
   overnight trips; fixed in v2.
-
-## Not yet committed
-
-Work in the local working tree that is not in any commit or deploy: the
-excess-km billing (`ingestion/excess_km*.py`, `sync-excess-km`,
-`export-excess-km`), resolver rule changes (1,500 km/day, 1.5M km cap), and
-related edits to `cli.py`, `config.py`, `schema.py`, `dimension_sync.py`,
-`seed_dimensions.py`, `README.md`. Both odometer tables were built with it.
 
 ## Milestones before versioning
 

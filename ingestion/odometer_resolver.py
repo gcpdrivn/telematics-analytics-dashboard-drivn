@@ -7,28 +7,24 @@ which method produced it (fill_method) and how much to trust it (confidence)
 for the column contract, and /home/yogesh/.claude/plans/rustling-munching-spindle.md
 for the analysis that justified the specific thresholds below.
 
-Detection is deliberately row-internal, not a cross-day rate/delta threshold:
-checked against this fleet's real data, no cross-day km/day cutoff cleanly
-separates real driving from device faults (a smooth continuum from ~800 to
-5,000+ km/day, and some vehicles show routine +/-3,000 km/day sensor noise
-that isn't a real event). A physical speed ceiling applied to each row's own
-reporting window (Start Date/End Date) does cleanly separate them -- flags
-only 70 of 3,630 rows (1.9%) on this dataset, matching every known-bad case
-found by hand (the 2,097,151.88 km overflow sentinel, and the handful of
-one-day resets like AP39WN7276/AP39WN7280) with a clean gap to everything
-else.
+Detection is deliberately row-internal: each day is judged on its own
+Opening/Closing Odometer only. The reported Distance field is not reliable
+enough to judge the odometer by, so no flag uses it (it is still the
+last-resort fallback value for a day no odometer anchor can repair). A
+reading is only discarded outright when it's the known overflow sentinel,
+negative, or past GARBAGE_ABS_THRESHOLD_KM (1.5 million km). Implausibility is
+a single rule applied everywhere: MAX_KM_PER_DAY, per day of the row itself,
+per calendar day of a silent gap between rows, and per calendar day of an
+anchor-to-anchor bracket.
 
 Known accepted limitation: a "quiet" day sitting inside a multi-day reset,
 whose own Opening/Closing happen to imply a small, internally-plausible delta
 (e.g. AP39WN7276's 2026-07-12/07-13, coasting from a reset-to-near-zero
 counter at ~2-14 km/day before the counter jumps back on 07-14), passes every
 row-internal check and is treated as RAW_VALID even though its true driven
-distance that day was much higher. Detecting this would require comparing a
-row against the vehicle's own prior history rather than staying row-internal
--- a deliberate call not to do that (see the plan doc this module implements),
-since the boundary days of the same reset (the huge negative/positive jumps)
-are still caught correctly, and it avoids reintroducing the kind of
-cross-day/historical threshold this design specifically moved away from.
+distance that day was much higher. The boundary days of the same reset (the
+huge negative/positive jumps) are still caught, and the excess-km billing
+flags such a month through its odometer-vs-Distance review check.
 """
 
 from __future__ import annotations
@@ -47,7 +43,7 @@ from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
 
-RESOLVER_VERSION = "1.0.0"
+RESOLVER_VERSION = "2.0.0"
 
 # The device firmware's known counter-overflow bug repeats this exact value
 # (2**21 - 1, a 21-bit rollover) regardless of the vehicle's real odometer --
@@ -56,26 +52,20 @@ RESOLVER_VERSION = "1.0.0"
 OVERFLOW_SENTINEL_KM = 2097151.88
 _SENTINEL_TOLERANCE_KM = 1.0
 
-# This fleet's real clean odometer readings top out under 2.5 lakh km (see
-# the final-odometer analysis earlier this session); anything past this is a
-# device fault (the sentinel above, or a one-off garbage value like the
-# ~100,000,514 km seen on MH02GS4224), not a real reading.
-GARBAGE_ABS_THRESHOLD_KM = 500_000.0
+# A reading past this is a device fault, not an odometer (e.g. the
+# ~100,000,514 km seen on MH02GS4224); discarded like the sentinel above.
+# Real readings in this fleet are far below it, but can pass 5 lakh km.
+GARBAGE_ABS_THRESHOLD_KM = 1_500_000.0
 
-# This fleet's own reported Max Speed never exceeds ~110 km/h in any single
-# trip (checked directly), so an implied average speed above this, computed
-# from a row's own (Closing - Opening) / elapsed_hours using that row's own
-# Start Date/End Date, is physically impossible -- not a statistical guess.
-PHYSICAL_MAX_SPEED_KMH = 120.0
+# No vehicle in this fleet can drive this far in a day: an odometer change of
+# this much or more per day is a device fault (reset, re-base, jump), whether
+# it's one row's own Closing - Opening, a silent gap between two rows, or the
+# span between two anchors a bracket of bad days is interpolated across.
+MAX_KM_PER_DAY = 1500.0
 
-# Below this, a row's own Closing/Opening move by ~0 -- if Distance says the
-# vehicle nonetheless moved this much or more the same day, the odometer
-# reading (not Distance) is the one that's wrong. Deliberately one-directional
-# -- see module docstring: Distance is the field believed to be less
-# accurate, so it alone disagreeing with the odometer in the other direction
-# is not treated as an odometer fault.
-STUCK_SENSOR_DISTANCE_KM = 20.0
-_STUCK_SENSOR_DELTA_TOLERANCE_KM = 0.5
+
+def _implausible(km: float, days: float) -> bool:
+    return abs(km) / max(days, 1.0) >= MAX_KM_PER_DAY
 
 
 def _is_sentinel(x: float) -> bool:
@@ -85,8 +75,8 @@ def _is_sentinel(x: float) -> bool:
 def _sanitize(df: pd.DataFrame) -> pd.DataFrame:
     """Nulls Opening/Closing Odometer independently (either can be bad
     without the other being bad) and records which per-row anomaly flags
-    apply. Returns df with opening_sanitized/closing_sanitized/elapsed_hours/
-    delta/implied_speed/anomaly_flags/is_raw_valid columns added."""
+    apply. Returns df with opening_sanitized/closing_sanitized/delta/
+    anomaly_flags/is_raw_valid columns added."""
     df = df.copy()
     df["opening_odometer_raw"] = df["Opening Odometer"]
     df["closing_odometer_raw"] = df["Closing Odometer"]
@@ -107,21 +97,7 @@ def _sanitize(df: pd.DataFrame) -> pd.DataFrame:
     df["closing_sanitized"] = df["Closing Odometer"].where(~closing_bad)
     df["_had_sentinel"] = opening_is_sentinel | closing_is_sentinel
 
-    elapsed_hours = (df["End Date"] - df["Start Date"]).dt.total_seconds() / 3600.0
-    df["elapsed_hours"] = elapsed_hours
-
-    delta = df["closing_sanitized"] - df["opening_sanitized"]
-    df["delta"] = delta
-    # A zero/negative reporting window with a non-trivial delta is itself
-    # impossible (movement with no elapsed time); guarded separately from the
-    # general division since elapsed_hours <= 0 would otherwise divide by a
-    # non-positive number.
-    implied_speed = np.where(
-        elapsed_hours > 0,
-        delta / elapsed_hours.where(elapsed_hours > 0),
-        np.where(delta.abs() > 0.05, np.inf, 0.0),
-    )
-    df["implied_speed"] = implied_speed
+    df["delta"] = df["closing_sanitized"] - df["opening_sanitized"]
 
     flags: list[list[str]] = []
     for _, row in df.iterrows():
@@ -133,15 +109,8 @@ def _sanitize(df: pd.DataFrame) -> pd.DataFrame:
         else:
             if row["delta"] < 0:
                 row_flags.append("non_monotonic")
-            if row["implied_speed"] > PHYSICAL_MAX_SPEED_KMH:
+            if _implausible(row["delta"], 1):
                 row_flags.append("physically_implausible")
-            dist = row["Distance"]
-            if (
-                abs(row["delta"]) <= _STUCK_SENSOR_DELTA_TOLERANCE_KM
-                and pd.notna(dist)
-                and dist >= STUCK_SENSOR_DISTANCE_KM
-            ):
-                row_flags.append("stuck_sensor")
         flags.append(row_flags)
     df["anomaly_flags"] = flags
     df["is_raw_valid"] = df["anomaly_flags"].apply(len) == 0
@@ -159,9 +128,8 @@ def _compute_boundary_gaps(df: pd.DataFrame) -> pd.Series:
     that adjacency, so this never bridges past a row the waterfall above
     already had to backfill -- only across a real gap or a plain boundary.
 
-    NaN unless both rows are RAW_VALID and the implied rate over the
-    actual elapsed time is physically plausible (same PHYSICAL_MAX_SPEED_KMH
-    ceiling used everywhere else in this module) -- this also means a
+    NaN unless both rows are RAW_VALID and the gap averages under
+    MAX_KM_PER_DAY over the calendar days between the two rows' dates -- this also means a
     'quiet day inside a reset' that slipped through as RAW_VALID (this
     module's documented accepted limitation) still has its neighboring gap
     correctly suppressed here, even though the day itself wasn't caught.
@@ -176,14 +144,8 @@ def _compute_boundary_gaps(df: pd.DataFrame) -> pd.Series:
             if not (df.at[i, "is_raw_valid"] and df.at[prev, "is_raw_valid"]):
                 continue
             gap = df.at[i, "opening_sanitized"] - df.at[prev, "closing_sanitized"]
-            elapsed_hours = (
-                df.at[i, "Start Date"] - df.at[prev, "End Date"]
-            ).total_seconds() / 3600.0
-            implied_speed = (
-                abs(gap) / elapsed_hours if elapsed_hours > 0
-                else (np.inf if abs(gap) > 0.05 else 0.0)
-            )
-            if implied_speed <= PHYSICAL_MAX_SPEED_KMH:
+            days = (df.at[i, "Report Date"] - df.at[prev, "Report Date"]).days
+            if not _implausible(gap, days):
                 gaps.at[i] = gap
     return gaps
 
@@ -248,9 +210,9 @@ def _interpolate_between(df: pd.DataFrame, anchor_before: int, anchor_after: int
     Distance as a weight (Medium confidence -- the split itself is a
     judgment call, even though the total is solid).
 
-    Before trusting either of those, the anchor PAIR's own average rate gets
-    the same physical-speed sanity check applied to individual rows
-    elsewhere in this module. Two rows can each independently pass their own
+    Before trusting either of those, the anchor PAIR's own change gets the
+    same MAX_KM_PER_DAY check applied to individual rows, per calendar day
+    strictly between the two anchors. Two rows can each independently pass their own
     within-row check yet still not really bracket the same continuous
     counter -- e.g. a reset that coasts from near-zero for a few days before
     a single huge catch-up jump (AP39WN7276's real pattern): every row in
@@ -266,21 +228,14 @@ def _interpolate_between(df: pd.DataFrame, anchor_before: int, anchor_after: int
     total_delta = end_val - start_val
     n_bad = len(bad_idx)
 
-    bracket_hours = (
-        df.at[anchor_after, "Start Date"] - df.at[anchor_before, "End Date"]
-    ).total_seconds() / 3600.0
-    bracket_rate = (
-        abs(total_delta) / bracket_hours
-        if bracket_hours > 0
-        else (np.inf if abs(total_delta) > 0.05 else 0.0)
-    )
-    if bracket_rate > PHYSICAL_MAX_SPEED_KMH:
+    bracket_days = (df.at[anchor_after, "Report Date"] - df.at[anchor_before, "Report Date"]).days - 1
+    if _implausible(total_delta, bracket_days):
         for i in bad_idx:
             _apply_distance_only(
                 df, i,
-                "Anchors exist on both sides, but the two together imply a "
-                "physically impossible average rate between them (likely a "
-                "counter re-basing/device swap partway through) -- not used;",
+                f"Anchors exist on both sides, but they differ by {MAX_KM_PER_DAY:,.0f} "
+                "km/day or more across the days between them (likely a counter "
+                "re-basing/device swap partway through) -- not used;",
             )
         return
 

@@ -155,13 +155,32 @@ def test_reset_with_implausible_bracket_falls_back_to_distance():
     assert good_after["fill_method"] == "RAW_VALID"
 
 
-def test_no_anchor_falls_back_to_distance():
-    """MH02GS4224-style: the vehicle's only-ever row has a garbage absolute
-    reading but a perfectly plausible Distance -- daily distance should
-    still recover even with zero usable odometer anchors."""
+def test_reading_over_1_5_million_km_is_discarded():
+    """MH02GS4224's real 2026-07-23 row (~100 million km): a reading past
+    1.5 million km is a device fault and discarded like the sentinel; one
+    under it (e.g. 6 lakh km) is kept."""
     df = pd.DataFrame(
         [
             _row("MH02GS4224", "2026-07-23", 523.80, 99999991.0, 100000514.8),
+            _row("BIGODO", "2026-07-23", 400.0, 600000.0, 600400.0),
+        ]
+    )
+    resolved = resolve(df, source_table="test")
+    garbage = resolved[resolved["base_license_plate"] == "MH02GS4224"].iloc[0]
+    assert "missing_reading" in garbage["anomaly_flags"]
+    assert pd.isna(garbage["opening_odometer_clean"])
+    big = resolved[resolved["base_license_plate"] == "BIGODO"].iloc[0]
+    assert big["fill_method"] == "RAW_VALID"
+    assert big["distance_by_odometer"] == pytest.approx(400.0)
+
+
+def test_no_anchor_falls_back_to_distance():
+    """The vehicle's only-ever row has no usable odometer pair but a
+    plausible Distance -- daily distance should still recover even with zero
+    usable odometer anchors."""
+    df = pd.DataFrame(
+        [
+            _row("NOANCHOR", "2026-07-23", 523.80, OVERFLOW_SENTINEL_KM, OVERFLOW_SENTINEL_KM),
         ]
     )
     resolved = resolve(df, source_table="test")
@@ -176,7 +195,7 @@ def test_no_anchor_falls_back_to_distance():
 def test_no_anchor_and_no_distance_is_unresolved():
     df = pd.DataFrame(
         [
-            _row("MH02GS4224", "2026-07-23", None, 99999991.0, 100000514.8),
+            _row("NOANCHOR", "2026-07-23", None, OVERFLOW_SENTINEL_KM, OVERFLOW_SENTINEL_KM),
         ]
     )
     resolved = resolve(df, source_table="test")
@@ -266,21 +285,50 @@ def test_boundary_gap_not_computed_across_a_bad_row():
     assert pd.isna(row["boundary_gap_distance"])
 
 
-def test_stuck_sensor_flag_is_one_directional():
-    """Odometer flat while Distance shows real movement -> flagged (the
-    odometer is what's wrong). Distance flat/zero while odometer shows
-    plausible movement should NOT be flagged -- Distance is the field
-    believed to be less accurate, so it alone disagreeing with the odometer
-    is not evidence the odometer is wrong."""
-    stuck = pd.DataFrame(
-        [_row("STUCKPLATE", "2026-09-01", 350.0, 1000.00, 1000.05)]
+def test_daily_change_of_1500_km_or_more_is_implausible():
+    """The per-day rule: Closing - Opening of 1,500 km or more in one day is
+    a device fault; 1,499 km is kept. The reporting window's length doesn't
+    matter any more (this row's window is 2 hours)."""
+    df = pd.DataFrame(
+        [
+            _row("KMDAY", "2026-07-01", 700.0, 1000.00, 2499.00, hours=2.0),
+            _row("KMDAY", "2026-07-02", 700.0, 2499.00, 3999.00),
+        ]
     )
-    resolved_stuck = resolve(stuck, source_table="test")
-    assert "stuck_sensor" in resolved_stuck.iloc[0]["anomaly_flags"]
+    resolved = resolve(df, source_table="test")
+    ok = _resolved_row(resolved, "2026-07-01")
+    assert ok["fill_method"] == "RAW_VALID"
+    bad = _resolved_row(resolved, "2026-07-02")
+    assert "physically_implausible" in bad["anomaly_flags"]
 
-    distance_wrong = pd.DataFrame(
-        [_row("DISTWRONGPLATE", "2026-09-01", 0.0, 1000.00, 1350.00)]
+
+def test_flat_odometer_is_not_judged_by_distance():
+    """Distance isn't reliable, so an odometer that didn't move while
+    Distance says it did is no longer flagged (stuck_sensor was removed)."""
+    df = pd.DataFrame([_row("FLATPLATE", "2026-09-01", 350.0, 1000.00, 1000.05)])
+    row = resolve(df, source_table="test").iloc[0]
+    assert row["fill_method"] == "RAW_VALID"
+    assert row["anomaly_flags"] == []
+
+
+def test_boundary_gap_limit_is_per_calendar_day():
+    """A silent gap is judged per calendar day between the two rows' dates:
+    5,600 km over 4 days (1,400/day) is kept; 6,000 km over 4 days
+    (1,500/day) is not."""
+    kept = pd.DataFrame(
+        [
+            _row("GAPPLATE", "2026-07-01", 700.0, 1000.00, 1700.00),
+            _row("GAPPLATE", "2026-07-05", 700.0, 7300.00, 8000.00),
+        ]
     )
-    resolved_distance_wrong = resolve(distance_wrong, source_table="test")
-    assert resolved_distance_wrong.iloc[0]["fill_method"] == "RAW_VALID"
-    assert "stuck_sensor" not in resolved_distance_wrong.iloc[0]["anomaly_flags"]
+    row = _resolved_row(resolve(kept, source_table="test"), "2026-07-05")
+    assert row["boundary_gap_distance"] == pytest.approx(5600.00)
+
+    rejected = pd.DataFrame(
+        [
+            _row("GAPPLATE", "2026-07-01", 700.0, 1000.00, 1700.00),
+            _row("GAPPLATE", "2026-07-05", 700.0, 7700.00, 8400.00),
+        ]
+    )
+    row = _resolved_row(resolve(rejected, source_table="test"), "2026-07-05")
+    assert pd.isna(row["boundary_gap_distance"])

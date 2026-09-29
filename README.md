@@ -79,7 +79,7 @@ odometer in `vehicle_soh_latest` (one row per vehicle), which feeds the Customer
 - DashCam devices are skipped. Of a vehicle's other devices, the one reporting a SoH wins, and
   SoH and odometer are both read from it.
 - A vehicle seen for the first time is added. One already stored is updated, but a value is only
-  replaced by a good new one: a missing SoH, or an odometer that is a device fault (past 5 lakh
+  replaced by a good new one: a missing SoH, or an odometer that is a device fault (past 15 lakh
   km) or has gone backwards by more than 1%, keeps the stored value. The raw reading and the
   reason are still recorded (`odometer_raw_km`, `odometer_flag`).
 - A vehicle missing from the ping keeps its row untouched. Nothing is ever deleted.

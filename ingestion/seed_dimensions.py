@@ -68,12 +68,11 @@ def _derive_type_model_by_plate(type_model_df: pd.DataFrame) -> dict[str, dict]:
 
 def _sanitize_odometer(series: pd.Series) -> pd.Series:
     """Nulls a reading that matches the known device-firmware overflow
-    sentinel or is otherwise absurdly large -- same two constants
-    ingestion/odometer_resolver.py uses for the same purpose, reused here
-    rather than redefined."""
+    sentinel, is past GARBAGE_ABS_THRESHOLD_KM, or is negative -- the same
+    rule ingestion/odometer_resolver.py applies, reusing its constants."""
     is_sentinel = (series - OVERFLOW_SENTINEL_KM).abs() < 1.0
     is_garbage = series > GARBAGE_ABS_THRESHOLD_KM
-    return series.where(~(is_sentinel | is_garbage))
+    return series.where(~(is_sentinel | is_garbage | (series < 0)))
 
 
 def _derive_starting_odometer_by_plate(odometer_df: pd.DataFrame) -> dict[str, float | None]:

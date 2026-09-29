@@ -34,10 +34,15 @@ app.include_router(uptime.router, prefix="/api")
 
 @app.get("/api/health")
 def health():
+    settings = data_loader.get_settings()
     return {
         "status": "ok",
         "utilization_source": data_loader.UTILIZATION_SOURCE,
         "distance_source": data_loader.DISTANCE_SOURCE,
+        # Which table versions this backend reads (e.g. *_v2), set by
+        # BQ_UTILIZATION_API_TABLE / BQ_ODOMETER_RESOLVED_TABLE.
+        "utilization_api_table": settings.bq_utilization_api_table,
+        "odometer_resolved_table": settings.bq_odometer_resolved_table,
     }
 
 

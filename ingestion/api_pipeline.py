@@ -17,6 +17,7 @@ import datetime as dt
 import logging
 from collections.abc import Collection
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -26,13 +27,18 @@ from ingestion.config import Settings
 
 logger = logging.getLogger(__name__)
 
-# A trip ending right around midnight can occasionally land on the calendar
-# day after `end_date` (a day-boundary/timezone rounding quirk in how the
-# from/to epoch window lines up with Fleetx's own local-time bookkeeping,
-# not a bug in a specific trip). This is the only legitimate spillover --
-# bounds both how far the loaded rows and the delete window are allowed to
-# extend past what was actually requested.
+# Fleetx returns every trip that overlaps the from/to window, with naive
+# sDate/eDate in IST, and a trip is attributed to its eDate. So a trip that
+# starts on `end_date` and runs past midnight lands on the day after --
+# the only legitimate spillover. This bounds both how far the loaded rows
+# and the delete window are allowed to extend past what was requested.
 DATE_TOLERANCE = dt.timedelta(days=1)
+
+# Report dates are IST calendar days, so the query window must be built in
+# IST whatever the host clock is. Built in the host's local time, a UTC
+# host (Cloud Run) queried 05:30-05:30 IST, so an overnight trip ending
+# before 05:30 IST fell outside its own day's window and was lost.
+IST = ZoneInfo("Asia/Kolkata")
 
 
 @dataclass
@@ -45,7 +51,7 @@ class VehicleResult:
 
 
 def _to_epoch_ms(d: dt.date) -> int:
-    return int(dt.datetime.combine(d, dt.time.min).timestamp() * 1000)
+    return int(dt.datetime.combine(d, dt.time.min, tzinfo=IST).timestamp() * 1000)
 
 
 def _fetch_trips_relogin_once(

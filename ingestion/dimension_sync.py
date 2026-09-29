@@ -68,6 +68,8 @@ VEHICLE_COLUMNS = [
     "is_active",
     "first_seen_at",
     "deactivated_at",
+    "monthly_available_km",
+    "excess_km_rate",
 ]
 CUSTOMER_COLUMNS = ["customer_name", "oem", "routes_description"]
 
@@ -132,6 +134,10 @@ class VehicleInputs:
     telemetry_type_model: dict[str, dict] = field(default_factory=dict)
     starting_odometer: dict[str, float | None] = field(default_factory=dict)
     fleetx_id_overrides: dict[str, int] = field(default_factory=dict)
+    # customer_name -> {"monthly_available_km", "excess_km_rate"} from the
+    # excess km terms sheet (excess_km.read_excess_km_terms). None means the
+    # sheet wasn't available -- every vehicle keeps its current terms.
+    excess_km_terms: dict[str, dict[str, float]] | None = None
 
 
 @dataclass
@@ -249,6 +255,13 @@ def plan_vehicles(inputs: VehicleInputs, now: dt.datetime) -> Plan:
                 existing.get("deactivated_at") if was_active is False else None, now
             ),
         }
+        # Terms follow the customer: the sheet is the source of truth when
+        # it's available (a customer not in it isn't billed -> NULL).
+        for col in ("monthly_available_km", "excess_km_rate"):
+            if inputs.excess_km_terms is None:
+                row[col] = _norm(existing.get(col))
+            else:
+                row[col] = (inputs.excess_km_terms.get(customer) or {}).get(col)
         if isinstance(row["device_installation_date"], dt.datetime):
             row["device_installation_date"] = row["device_installation_date"].date()
         planned[plate] = row

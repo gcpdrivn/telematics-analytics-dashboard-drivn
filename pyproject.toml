@@ -26,6 +26,8 @@ validate-api-pipeline = "ingestion.cli:main_validate_api"
 resolve-odometer = "ingestion.cli:main_resolve_odometer"
 backfill-vehicles = "ingestion.cli:main_backfill_vehicles"
 ingest-soh = "ingestion.cli:main_ingest_soh"
+sync-excess-km = "ingestion.cli:main_sync_excess_km"
+export-excess-km = "ingestion.cli:main_export_excess_km"
 
 [build-system]
 requires = ["hatchling"]

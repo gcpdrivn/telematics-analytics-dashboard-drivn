@@ -22,3 +22,6 @@ data/api_probe/
 # Excel-vs-API validation reports -- contains real per-vehicle utilization
 # data, not sample data.
 data/validation/
+
+# Excess km billing workbooks -- real per-vehicle km and customer charges.
+data/exports/

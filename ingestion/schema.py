@@ -104,6 +104,10 @@ DIM_VEHICLE_SCHEMA = [
                           description="When seed_dimensions first added this vehicle (or first ran with this column, for older rows)."),
     bigquery.SchemaField("deactivated_at", "TIMESTAMP", mode="NULLABLE",
                           description="When the vehicle was marked inactive; NULL while active."),
+    bigquery.SchemaField("monthly_available_km", "FLOAT64", mode="NULLABLE",
+                          description="Contracted km per vehicle per month before excess km is charged -- the customer's 'Monthly Available KM' from 'Excess KM & Battery Replacement.xlsx', uniform across that customer's vehicles. NULL when the customer isn't billed for excess km (see ingestion/excess_km.py)."),
+    bigquery.SchemaField("excess_km_rate", "FLOAT64", mode="NULLABLE",
+                          description="INR charged per km driven beyond monthly_available_km in a month -- the customer's 'Excess KM Rate (INR/KM)' from the same sheet. NULL alongside monthly_available_km."),
 ]
 
 # Derived/backfilled odometer-based daily distance -- one row per

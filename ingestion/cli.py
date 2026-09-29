@@ -13,6 +13,8 @@ from ingestion import (
     api_pipeline,
     api_validation,
     bq_client,
+    excess_km,
+    excess_km_export,
     mileage,
     odometer_resolver,
     pipeline,
@@ -326,6 +328,58 @@ def main_seed_dimensions() -> None:
         print(f"\nAborted: {exc}", file=sys.stderr)
         sys.exit(1)
     print("\nDone.")
+
+
+def main_sync_excess_km() -> None:
+    """`uv run sync-excess-km`"""
+    parser = argparse.ArgumentParser(
+        description="Load each billed customer's monthly available km and excess km rate from "
+        "'Excess KM & Battery Replacement.xlsx' into dim_vehicle (preview, confirm, back up), "
+        "then (re)create the excess_km_monthly / excess_km_monthly_customer views."
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Show the preview only; write nothing.")
+    parser.add_argument("--yes", action="store_true", help="Apply without the interactive prompt.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
+    args = parser.parse_args()
+    _configure_logging(args.verbose)
+
+    settings = load_settings()
+    try:
+        excess_km.run(settings, dry_run=args.dry_run, assume_yes=args.yes)
+    except excess_km.SyncAborted as exc:
+        print(f"\nAborted: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print("\nDone.")
+
+
+def main_export_excess_km() -> None:
+    """`uv run export-excess-km --month 2026-08`"""
+    parser = argparse.ArgumentParser(
+        description="Refresh odometer_daily_resolved, then write the excess km & cost workbook for one "
+        "completed month to data/exports/excess_km_<YYYY-MM>.xlsx."
+    )
+    parser.add_argument(
+        "--month", help="Month as YYYY-MM (default: last month).",
+    )
+    parser.add_argument(
+        "--no-refresh", action="store_true",
+        help="Skip rebuilding odometer_daily_resolved first (use the readings as they are).",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
+    args = parser.parse_args()
+    _configure_logging(args.verbose)
+
+    if args.month:
+        month = dt.datetime.strptime(args.month, "%Y-%m").date()
+    else:
+        month = (dt.date.today().replace(day=1) - dt.timedelta(days=1)).replace(day=1)
+    settings = load_settings()
+    try:
+        path = excess_km_export.export(settings, month, refresh=not args.no_refresh)
+    except excess_km_export.ExportError as exc:
+        print(f"\nAborted: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"\nWrote {path}")
 
 
 if __name__ == "__main__":

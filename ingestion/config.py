@@ -40,6 +40,7 @@ class Settings:
     mileage_soc_file: Path
     dim_vehicle_master_file: Path
     fleetx_vehicle_map_file: Path
+    excess_km_terms_file: Path
     # Deployed dashboard backend (e.g. the Cloud Run URL), so a vehicle
     # backfill can clear its in-process cache and show the new data
     # immediately. Optional -- unset means "wait for the cache TTL".
@@ -92,6 +93,17 @@ class Settings:
         ingestion/soh_snapshot.py."""
         return f"{self.dataset_ref}.{self.bq_soh_latest_table}"
 
+    @property
+    def excess_km_monthly_view_ref(self) -> str:
+        """Per vehicle per completed month: billable odometer km, excess km
+        over dim_vehicle.monthly_available_km and its cost -- see
+        ingestion/excess_km.py."""
+        return f"{self.dataset_ref}.excess_km_monthly"
+
+    @property
+    def excess_km_monthly_customer_view_ref(self) -> str:
+        return f"{self.dataset_ref}.excess_km_monthly_customer"
+
 
 def _resolve_path(env_name: str, default: str) -> Path:
     raw = os.environ.get(env_name, default)
@@ -135,6 +147,9 @@ def load_settings() -> Settings:
         ),
         fleetx_vehicle_map_file=_resolve_path(
             "FLEETX_VEHICLE_MAP_FILE", "data/raw/Vehicle_Update_uploader.xlsx"
+        ),
+        excess_km_terms_file=_resolve_path(
+            "EXCESS_KM_TERMS_FILE", "data/raw/Excess KM & Battery Replacement.xlsx"
         ),
         backend_url=(os.environ.get("BACKEND_URL") or "").strip().rstrip("/") or None,
     )

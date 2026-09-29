@@ -46,6 +46,8 @@ def _cur(plate, customer, **extra):
         "is_active": True,
         "first_seen_at": EARLIER,
         "deactivated_at": None,
+        "monthly_available_km": None,
+        "excess_km_rate": None,
     }
     row.update(extra)
     return row
@@ -375,6 +377,7 @@ def env(tmp_path, monkeypatch):
     settings = SimpleNamespace(
         fleetx_vehicle_map_file=export,
         dim_vehicle_master_file=tmp_path / "missing_master.xlsx",
+        excess_km_terms_file=tmp_path / "missing_terms.xlsx",
         dim_vehicle_table_ref="proj.ds.dim_vehicle",
         dim_customer_table_ref="proj.ds.dim_customer",
     )

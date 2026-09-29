@@ -65,6 +65,49 @@ against a bad export:
   `BACKEND_URL` is set), so they show up immediately. Skip with `--no-backfill`; retry with
   `uv run backfill-vehicles PLATE ...`.
 
+### Excess km billing
+
+```bash
+uv run sync-excess-km --dry-run   # preview dim_vehicle term changes from the terms sheet
+uv run sync-excess-km             # preview, confirm, back up, apply; (re)create the views
+```
+
+Loads each billed customer's `Monthly Available KM` and `Excess KM Rate (INR/KM)` from
+`data/raw/Excess KM & Battery Replacement.xlsx` into `dim_vehicle.monthly_available_km` /
+`excess_km_rate` (same values for every vehicle of that customer; billed customers are listed in
+`ingestion/excess_km.py`'s `SHEET_OPERATORS`). `seed-dimensions` fills the same columns, so newly
+onboarded vehicles get their customer's terms.
+
+Two BigQuery views compute the result per completed calendar month (the current month appears once
+it closes):
+
+- `excess_km_monthly` has one row per vehicle-month. Billable km come from trusted odometer days
+  (RAW_VALID / INTERPOLATED / MANUAL_OVERRIDE), plus km driven while the device was silent, counted
+  only when that averages under 1,500 km/day. Excess km is `max(0, billable km − allowance)`, and cost
+  is excess km × rate.
+- A month is flagged `needs_review` in two cases, but is still costed:
+  - under 90% of its in-service days are backed by trusted readings;
+  - its odometer km differ from the reported Distance by more than 15%.
+- `excess_km_monthly_customer` is the per-customer rollup.
+
+Each month, after the month closes:
+
+```bash
+uv run export-excess-km                  # last month -> data/exports/excess_km_<YYYY-MM>.xlsx
+uv run export-excess-km --month 2026-08  # a specific completed month
+```
+
+It rebuilds `odometer_daily_resolved` first (skip with `--no-refresh`), then writes a workbook with
+these tabs:
+- Summary
+- Vehicle Detail
+- Daily Readings (every day and how it was counted)
+- Terms
+- Method
+
+Excess km, cost and review flags are Excel formulas driven by the Terms tab. `data/exports/` is
+gitignored.
+
 ### Battery SoH (morning ping)
 
 ```bash

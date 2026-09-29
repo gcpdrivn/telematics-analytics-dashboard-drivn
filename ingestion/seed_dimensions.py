@@ -26,7 +26,7 @@ from typing import Callable
 import pandas as pd
 from google.api_core.exceptions import NotFound
 
-from ingestion import bq_client, dimension_sync, fleetx_vehicle_map, vehicle_backfill, vehicle_master
+from ingestion import bq_client, dimension_sync, excess_km, fleetx_vehicle_map, vehicle_backfill, vehicle_master
 from ingestion.config import Settings
 from ingestion.odometer_resolver import GARBAGE_ABS_THRESHOLD_KM, OVERFLOW_SENTINEL_KM
 from ingestion.schema import DIM_CUSTOMER_SCHEMA, DIM_VEHICLE_SCHEMA
@@ -111,7 +111,8 @@ def _read_current(client, table_ref: str, dry_run: bool) -> pd.DataFrame:
 def _vehicle_load_frame(rows: pd.DataFrame) -> pd.DataFrame:
     df = rows.copy()
     df["fleetx_id"] = df["fleetx_id"].astype("Int64")
-    df["starting_odometer"] = df["starting_odometer"].astype("float64")
+    for col in ("starting_odometer", "monthly_available_km", "excess_km_rate"):
+        df[col] = df[col].astype("float64")
     df["is_active"] = df["is_active"].astype("boolean")
     for col in ("first_seen_at", "deactivated_at"):
         df[col] = pd.to_datetime(df[col], utc=True)
@@ -220,6 +221,12 @@ def run(
             settings.dim_vehicle_master_file,
         )
 
+    try:
+        excess_km_terms = excess_km.read_excess_km_terms(settings.excess_km_terms_file)
+    except excess_km.TermsFileError as exc:
+        excess_km_terms = None
+        logger.warning("%s -- keeping every vehicle's current excess km terms.", exc)
+
     candidate_plates = sorted(
         set(export) | set(current_vehicles.get("base_license_plate", pd.Series(dtype=str)).astype(str))
     )
@@ -241,6 +248,7 @@ def run(
             telemetry_type_model=telemetry,
             starting_odometer=starting_odometer,
             fleetx_id_overrides=FLEETX_ID_MANUAL_OVERRIDES,
+            excess_km_terms=excess_km_terms,
         ),
         now,
     )

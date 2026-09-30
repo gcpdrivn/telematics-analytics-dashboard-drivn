@@ -40,13 +40,13 @@ export function CategoryPage({ category, label }: { category: Category; label: s
       <KpiCards kpi={kpi} />
 
       <div className="charts-grid">
-        <div className="panel">
+        <div className="panel" id="top-5">
           <div className="panel-header">Top 5 by Avg km/day</div>
           <div className="panel-body">
             <TopBottomBarChart vehicles={vehicles.vehicles} isTop benchmarkVal={benchmark} />
           </div>
         </div>
-        <div className="panel">
+        <div className="panel" id="bottom-5">
           <div className="panel-header">Bottom 5 by Avg km/day</div>
           <div className="panel-body">
             <TopBottomBarChart vehicles={vehicles.vehicles} isTop={false} benchmarkVal={benchmark} />
@@ -54,7 +54,7 @@ export function CategoryPage({ category, label }: { category: Category; label: s
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="vehicle-table">
         <div className="panel-header">
           {label} ({vehicles.total_count}) — {vehicles.below_80_count} below 80% active
         </div>

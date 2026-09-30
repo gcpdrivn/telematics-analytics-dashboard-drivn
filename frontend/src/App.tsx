@@ -2,8 +2,10 @@ import { NavLink, Route, Routes, useLocation } from "react-router-dom"
 import { DateRangePicker } from "./components/DateRangePicker"
 import { FleetOdometerBanner } from "./components/FleetOdometerBanner"
 import { ThemeToggle } from "./components/ThemeToggle"
+import { useHashScroll } from "./hooks/useHashScroll"
 import { BusesPage } from "./pages/BusesPage"
 import { CustomersPage } from "./pages/CustomersPage"
+import { GlossaryPage } from "./pages/GlossaryPage"
 import { TrucksPage } from "./pages/TrucksPage"
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -14,6 +16,7 @@ export default function App() {
   // Preserve ?start=&end= across page nav -- a plain `to="/buses"` would
   // otherwise drop the date filter every time you switch tabs.
   const location = useLocation()
+  useHashScroll()
 
   return (
     <div className="wrapper">
@@ -40,6 +43,13 @@ export default function App() {
             </NavLink>
           </nav>
           <DateRangePicker />
+          <NavLink
+            to={{ pathname: "/glossary", search: location.search }}
+            className={({ isActive }) => `btn-action btn-link${isActive ? " active" : ""}`}
+            title="What each chart and number means"
+          >
+            📖 Glossary
+          </NavLink>
           <ThemeToggle />
         </div>
       </header>
@@ -49,6 +59,7 @@ export default function App() {
         <Route path="/buses" element={<BusesPage />} />
         <Route path="/trucks" element={<TrucksPage />} />
         <Route path="/customers" element={<CustomersPage />} />
+        <Route path="/glossary" element={<GlossaryPage />} />
       </Routes>
     </div>
   )

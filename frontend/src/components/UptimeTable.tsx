@@ -79,7 +79,7 @@ export function UptimeTable({ range, customer }: { range: DateRange; customer: C
   const detailedLabels = data ? Object.fromEntries(data.legend_detailed.map((l) => [l.status, l.label])) : {}
 
   return (
-    <div className="panel">
+    <div className="panel" id="uptime-calendar">
       <div className="panel-header">Vehicle Uptime Calendar</div>
       <div className="panel-body">
         <div className="uptime-toolbar">

@@ -25,7 +25,7 @@ export function formatIndian(val: number, decimals = 0): string {
 
 export function KpiCards({ kpi }: { kpi: KpiSummary }) {
   return (
-    <div className="kpi-row">
+    <div className="kpi-row" id="kpi-cards">
       <div className="kpi-box">
         <div className="kpi-label">{kpi.dist_label}</div>
         <div className="kpi-num">

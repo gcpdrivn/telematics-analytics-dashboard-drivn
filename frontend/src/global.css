@@ -324,3 +324,30 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
   width: 48px; min-width: 48px; height: 32px; padding: 0 !important;
   border-right: 1px solid rgba(148, 163, 184, 0.15); cursor: default;
 }
+
+/* Glossary page -- long-form text, so table cells wrap (unlike the data tables) */
+.glossary { font-size: 0.9rem; line-height: 1.6; color: var(--text-primary); max-width: 1000px; }
+.glossary p { margin: 0 0 0.9rem; }
+.glossary ul { margin: 0 0 0.9rem; padding-left: 1.25rem; }
+.glossary li { margin-bottom: 0.4rem; }
+.glossary h3 { font-size: 0.95rem; font-weight: 700; margin: 1.5rem 0 0.6rem; }
+.glossary h3:first-child { margin-top: 0; }
+.glossary-table { border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; margin-bottom: 1.1rem; }
+.glossary-table th { cursor: default; position: static; }
+.glossary-table td { white-space: normal; vertical-align: top; line-height: 1.5; }
+.glossary-table td:first-child { font-weight: 600; width: 26%; }
+
+/* Header glossary link (a NavLink styled as a secondary button) */
+.btn-link { text-decoration: none; }
+.btn-link.active { border-color: var(--accent-brand); color: var(--accent-brand); }
+
+/* Deep links from the glossary to a chart: land with a little headroom, then flash */
+[id] { scroll-margin-top: 1rem; }
+@keyframes anchor-flash {
+  0%, 60% { box-shadow: 0 0 0 3px var(--accent-brand); }
+  100% { box-shadow: var(--shadow-card); }
+}
+.anchor-flash { animation: anchor-flash 1.8s ease-out; }
+.glossary a.chart-link { color: var(--accent-brand); font-weight: 700; text-decoration: none; }
+.glossary a.chart-link:hover { text-decoration: underline; }
+.glossary .chart-link-sample { color: var(--accent-brand); font-weight: 700; }

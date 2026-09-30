@@ -16,7 +16,7 @@ export function FleetOdometerBanner() {
   }, [])
 
   return (
-    <div className="fleet-odo-banner">
+    <div className="fleet-odo-banner" id="lifetime-distance">
       <span className="fleet-odo-label">Total Lifetime Distance</span>
       <span className="fleet-odo-num">
         {data ? formatIndian(data.total_odometer) : "—"} <span className="kpi-unit">km</span>

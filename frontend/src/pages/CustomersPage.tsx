@@ -111,7 +111,7 @@ export function CustomersPage() {
         <CustomerSelector value={customer} onChange={setCustomer} />
       </div>
 
-      <div className="panel">
+      <div className="panel" id="key-customer-accounts">
         <div className="panel-header">Key Customer Accounts</div>
         <div className="panel-body">
           <div className="customer-grid">
@@ -125,25 +125,25 @@ export function CustomersPage() {
       <UptimeTable range={range} customer={customer} />
 
       <div className="charts-grid">
-        <div className="panel">
+        <div className="panel" id="daily-distance-trajectory">
           <div className="panel-header">Daily Distance Trajectory</div>
           <div className="panel-body">
             <DailyDistanceBar customers={filteredCustomers} />
           </div>
         </div>
-        <div className="panel">
+        <div className="panel" id="fleet-distance-share">
           <div className="panel-header">Fleet Distance Share</div>
           <div className="panel-body">
             <ShareDonut customers={analytics.customers_all} highlight={customer === "All" ? null : customer} />
           </div>
         </div>
-        <div className="panel">
+        <div className="panel" id="dispatch-variance">
           <div className="panel-header">Dispatch Variance (Daily Distance Distribution)</div>
           <div className="panel-body">
             <BoxplotChart boxData={filteredBoxData} />
           </div>
         </div>
-        <div className="panel">
+        <div className="panel" id="day-of-week-rhythm">
           <div className="panel-header">Day-of-Week Operational Rhythm</div>
           <div className="panel-body">
             <SeasonalityChart profiles={filteredDowProfiles} dowLabels={analytics.dow_labels} />
@@ -151,7 +151,7 @@ export function CustomersPage() {
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="soh-odometer">
         <div className="panel-header">Battery State of Health vs Latest Odometer</div>
         <div className="panel-body">
           {sohError && <div className="error-box">Failed to load SoH data: {sohError}</div>}
@@ -160,21 +160,21 @@ export function CustomersPage() {
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="active-timeline">
         <div className="panel-header">Daily Active Commercial Vehicle % Timeline</div>
         <div className="panel-body">
           <ActiveTimelineChart timeline={analytics.active_timeline} customers={filteredTimelineCustomers} />
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="distance-compartments">
         <div className="panel-header">Daily Distance Compartments & Fleet Dispersion</div>
         <div className="panel-body">
           {crosstab && <CrosstabMatrix data={crosstab} customer={customer} />}
         </div>
       </div>
 
-      <div className="panel">
+      <div className="panel" id="vehicle-trajectory">
         <div className="panel-header">Vehicle Distance Trajectory (by SoC)</div>
         <div className="panel-body">
           {customer === "All" && (

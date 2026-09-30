@@ -146,7 +146,7 @@ export function CrosstabMatrix({ data, customer }: { data: CrosstabResponse; cus
         )}
       </div>
 
-      <div className="panel" style={{ marginTop: "1rem" }}>
+      <div className="panel" id="duty-inspector" style={{ marginTop: "1rem" }}>
         <div className="panel-header">Duty Inspector</div>
         <div className="panel-body">
           {!selected || !selectedEntry ? (

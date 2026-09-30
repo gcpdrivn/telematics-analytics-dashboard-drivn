@@ -56,11 +56,14 @@ class Settings:
 
     @property
     def utilization_api_table_ref(self) -> str:
-        """Shadow table for the Fleetx-API-sourced pipeline (Phase 1/2 of the
-        Excel->API migration) -- same schema as utilization_daily, never
-        read by backend/, so the Excel pipeline and existing dashboard are
-        completely unaffected while the two sources are validated against
-        each other."""
+        """Fleetx-API-sourced utilization data -- same schema as
+        utilization_daily (the original Excel table, now a frozen/inactive
+        source). This IS what backend/ and the daily jobs read/write in
+        production; defaults to the "_v2" name (see BACKEND_VERSIONS.md for
+        why -- an IST trip-window bug in the original utilization_daily_api
+        required a full re-ingest under a new table name rather than an
+        in-place fix). Override via BQ_UTILIZATION_API_TABLE only for
+        one-off inspection of the original (frozen) table."""
         return f"{self.dataset_ref}.{self.bq_utilization_api_table}"
 
     @property
@@ -83,7 +86,9 @@ class Settings:
     def odometer_resolved_table_ref(self) -> str:
         """Derived/backfilled odometer-based daily distance -- see
         ingestion/odometer_resolver.py. Never a source of truth for raw
-        telemetry; fully recomputable from utilization_daily_api."""
+        telemetry; fully recomputable from utilization_api_table_ref.
+        Defaults to the "_v2" name, matching utilization_api_table_ref --
+        see that property's docstring."""
         return f"{self.dataset_ref}.{self.bq_odometer_resolved_table}"
 
     @property
@@ -122,7 +127,7 @@ def load_settings() -> Settings:
             "BQ_UTILIZATION_TABLE", "utilization_daily"
         ),
         bq_utilization_api_table=os.environ.get(
-            "BQ_UTILIZATION_API_TABLE", "utilization_daily_api"
+            "BQ_UTILIZATION_API_TABLE", "utilization_daily_api_v2"
         ),
         bq_ingestion_log_table=os.environ.get(
             "BQ_INGESTION_LOG_TABLE", "ingestion_log"
@@ -133,7 +138,7 @@ def load_settings() -> Settings:
         bq_dim_customer_table=os.environ.get("BQ_DIM_CUSTOMER_TABLE", "dim_customer"),
         bq_dim_vehicle_table=os.environ.get("BQ_DIM_VEHICLE_TABLE", "dim_vehicle"),
         bq_odometer_resolved_table=os.environ.get(
-            "BQ_ODOMETER_RESOLVED_TABLE", "odometer_daily_resolved"
+            "BQ_ODOMETER_RESOLVED_TABLE", "odometer_daily_resolved_v2"
         ),
         bq_soh_latest_table=os.environ.get("BQ_SOH_LATEST_TABLE", "vehicle_soh_latest"),
         raw_utilization_dir=_resolve_path(

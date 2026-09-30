@@ -133,8 +133,12 @@ export function GlossaryPage() {
             ],
             ["SoH (State of Health)", "How much charge the battery can still hold compared with when new, in %."],
             [
+              "σ (sigma, standard deviation)",
+              "How far a vehicle's daily km usually strays from its Avg km/day, in km, over active days. Most days fall within Avg ± σ: an average of 400 km with σ = 80 km means most days run 320–480 km. Shown on hover in the vehicle table, and as the error bars in the Day-of-Week chart.",
+            ],
+            [
               "Daily KM Volatility (CV)",
-              "σ (the typical swing in daily km) ÷ Avg km/day, over active days. Stable under 25%, Moderate 25–50%, Volatile 50%+. Needs 2 active days; otherwise shown as Single Day (a vehicle) or Yard Holding (a whole customer).",
+              "σ ÷ Avg km/day, as a %. It turns σ into a share of the average so vehicles that drive different distances can be compared: σ = 80 km is Stable on a 400 km average (20%) but Volatile on a 100 km one (80%). Stable under 25%, Moderate 25–50%, Volatile 50%+. Needs 2 active days; otherwise shown as Single Day (a vehicle) or Yard Holding (a whole customer).",
             ],
           ]}
         />

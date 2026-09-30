@@ -8,16 +8,34 @@ resolver fix, a re-backfill). UI-only changes don't need an entry.
 Check what a running backend reads: `GET /api/health` returns
 `utilization_api_table` and `odometer_resolved_table`.
 
-## Where things stand (29 Sep 2026)
+## Where things stand (30 Sep 2026)
+
+Fully moved onto the `_v2` tables -- not a back-patch of the production-named
+ones, a permanent switch. Every consumer (dashboard, daily jobs, excess-km
+billing) reads/writes `_v2` now.
 
 | | Production |
 |---|---|
-| Code | `main` at `b92f776` |
-| Backend | Cloud Run `drivn-backend-00019-49g`, from `3458852` (backend unchanged since) |
-| Daily jobs (IST) | 08:30 `drivn-ingest-daily` (from `3458852`), 08:30 `drivn-soh-daily` (unchanged), 09:00 `drivn-resolve-odometer` (from `b92f776`) |
-| Tables read | `utilization_daily_api`, `odometer_daily_resolved`, plus `dim_vehicle`, `dim_customer`, `vehicle_mileage_soc`, `vehicle_soh_latest` |
-| Data in those tables | v1 for 7 Apr – 28 Sep; v2 from 29 Sep onward (first fixed ingest 30 Sep 08:30 IST) |
-| v2 copies | `utilization_daily_api_v2`, `odometer_daily_resolved_v2` (7 Apr – 28 Sep, not updated daily) |
+| Code | `main` at `01d1a88` |
+| Backend | Cloud Run `drivn-backend-00020-mdj` -- `BQ_UTILIZATION_API_TABLE=utilization_daily_api_v2`, `BQ_ODOMETER_RESOLVED_TABLE=odometer_daily_resolved_v2`. Confirmed via `GET /api/health`. |
+| Daily jobs (IST) | 08:30 `drivn-ingest-daily`, 08:30 `drivn-soh-daily` (unaffected -- writes `vehicle_soh_latest`), 09:00 `drivn-resolve-odometer` -- the two utilization-related jobs updated + manually executed to confirm, both target `_v2` |
+| Tables read (dashboard + billing) | `utilization_daily_api_v2`, `odometer_daily_resolved_v2`, plus `dim_vehicle`, `dim_customer`, `vehicle_mileage_soc`, `vehicle_soh_latest` |
+| Excess-km billing | `excess_km_monthly` / `excess_km_monthly_customer` views recreated against `odometer_daily_resolved_v2` (`sync-excess-km`, no `dim_vehicle` term changes needed) |
+| `_v2` data coverage | `utilization_daily_api_v2`: 7 Apr – 30 Sep. `odometer_daily_resolved_v2`: rebuilt full-history, current through 29 Sep (resolver excludes today, same as v1 always did). |
+| v1 (original tables) | Frozen at their 30 Sep state, no longer written to. Kept as-is plus explicit 90-day snapshots: `utilization_daily_api_backup_20260930T091207Z`, `odometer_daily_resolved_backup_20260930T091207Z`. Restore either way: `CREATE OR REPLACE TABLE \`<table>\` CLONE \`<backup-or-v1-table>\`` |
+
+### What was fixed getting `_v2` current (30 Sep 2026)
+
+- `utilization_daily_api_v2`'s existing 29 Sep row was stale/partial (49
+  vehicles, 6,543 km total) vs. production's already-correct 29 Sep (64
+  vehicles, 21,036 km -- production's own daily job had already picked up
+  the IST-window fix by its 30 Sep run, since `drivn-ingest-daily` was
+  redeployed 29 Sep 16:53 UTC, before that morning's run). Re-ingested 29-30
+  Sep into `_v2` via `ingest-utilization-api --from 2026-09-29 --to
+  2026-09-30` (env-overridden to the `_v2` table); 29 Sep now matches
+  production exactly.
+- `odometer_daily_resolved_v2` fully rebuilt from the corrected
+  `utilization_daily_api_v2` (4,048 rows, current through 29 Sep).
 
 ## Versions
 

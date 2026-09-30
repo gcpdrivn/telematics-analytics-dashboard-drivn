@@ -116,6 +116,10 @@ export function GlossaryPage() {
               </>,
             ],
             [
+              "Engine hours (Operating time)",
+              "Hours the vehicle spent on trips: the start-to-end length of each trip Fleetx records, so short stops within a trip count. For these EVs it means time on a trip, not an engine running. A trip's hours all count on the day it ends; a day over 24 hours is dropped as a device error.",
+            ],
+            [
               "Gap distance / Under Operation",
               "Gap distance is km the odometer shows between two reports that can't be pinned to one day, e.g. while the device was silent. Under Operation = daily distance + gap distance.",
             ],

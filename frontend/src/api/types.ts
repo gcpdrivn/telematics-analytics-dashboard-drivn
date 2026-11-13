@@ -19,6 +19,7 @@ export type CustomerName =
   | "Purple Mobility"
   | "Enviiirowheels"
   | "Flytta"
+  | "Juleh"
 export type CrosstabCustomer = "All" | CustomerName
 
 export interface KpiSummary {

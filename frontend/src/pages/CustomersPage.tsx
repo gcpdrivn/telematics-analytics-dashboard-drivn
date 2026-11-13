@@ -10,11 +10,9 @@ import type {
 } from "../api/types"
 import { CustomerCard } from "../components/CustomerCard"
 import { CustomerSelector } from "../components/CustomerSelector"
-import { BoxplotChart } from "../components/CustomerCharts/BoxplotChart"
 import { DailyDistanceBar } from "../components/CustomerCharts/DailyDistanceBar"
 import { ShareDonut } from "../components/CustomerCharts/ShareDonut"
 import { ActiveTimelineChart } from "../components/CustomerCharts/ActiveTimelineChart"
-import { SeasonalityChart } from "../components/CustomerCharts/SeasonalityChart"
 import { SohOdometerChart } from "../components/CustomerCharts/SohOdometerChart"
 import { ALL_CUSTOMERS } from "../components/CustomerCharts/colors"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
@@ -85,18 +83,6 @@ export function CustomersPage() {
     return customer === "All" ? analytics.customers_all : analytics.customers_all.filter((c) => c.customer === customer)
   }, [analytics, customer])
 
-  const filteredBoxData = useMemo(() => {
-    if (!analytics) return {} as CustomerAnalytics["customer_box_data"]
-    if (customer === "All") return analytics.customer_box_data
-    return { [customer]: analytics.customer_box_data[customer] } as CustomerAnalytics["customer_box_data"]
-  }, [analytics, customer])
-
-  const filteredDowProfiles = useMemo(() => {
-    if (!analytics) return {} as CustomerAnalytics["dow_profiles"]
-    if (customer === "All") return analytics.dow_profiles
-    return { [customer]: analytics.dow_profiles[customer] } as CustomerAnalytics["dow_profiles"]
-  }, [analytics, customer])
-
   const filteredTimelineCustomers: CustomerName[] = customer === "All" ? ALL_CUSTOMERS : [customer]
 
   if (error) return <div className="error-box">Failed to load: {error}</div>
@@ -135,18 +121,6 @@ export function CustomersPage() {
           <div className="panel-header">Fleet Distance Share</div>
           <div className="panel-body">
             <ShareDonut customers={analytics.customers_all} highlight={customer === "All" ? null : customer} />
-          </div>
-        </div>
-        <div className="panel" id="dispatch-variance">
-          <div className="panel-header">Dispatch Variance (Daily Distance Distribution)</div>
-          <div className="panel-body">
-            <BoxplotChart boxData={filteredBoxData} />
-          </div>
-        </div>
-        <div className="panel" id="day-of-week-rhythm">
-          <div className="panel-header">Day-of-Week Operational Rhythm</div>
-          <div className="panel-body">
-            <SeasonalityChart profiles={filteredDowProfiles} dowLabels={analytics.dow_labels} />
           </div>
         </div>
       </div>

@@ -48,6 +48,8 @@ CUSTOMER_TAGS = {
     "ENVIIIROWHEELS": "Enviiirowheels",
     "ENVIIIRO": "Enviiirowheels",
     "FLYTTA": "Flytta",
+    "JULEH": "Juleh",
+    "JULEH MOBILITY": "Juleh",
 }
 
 # Default dim_customer attributes. Only used to fill a customer that's new or
@@ -62,6 +64,7 @@ CUSTOMER_DEFAULTS = {
     "Purple Mobility": {"oem": "Ashok Leyland / Switch (Bus)", "routes_description": None},
     "Enviiirowheels": {"oem": "SAINI (Truck)", "routes_description": None},
     "Flytta": {"oem": "IPL / ELECTRIQ (Truck)", "routes_description": None},
+    "Juleh": {"oem": "Eicher (Bus)", "routes_description": None},
 }
 
 VEHICLE_COLUMNS = [

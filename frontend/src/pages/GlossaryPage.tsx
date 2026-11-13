@@ -213,15 +213,6 @@ export function GlossaryPage() {
             customer's share of total km.
           </li>
           <li>
-            <ChartLink to="/#dispatch-variance">Dispatch Variance</ChartLink>: box plot of all active vehicle-days per
-            customer. The box is the middle half, the line the median, dots are unusual days. Taller box = less steady
-            schedule.
-          </li>
-          <li>
-            <ChartLink to="/#day-of-week-rhythm">Day-of-Week Operational Rhythm</ChartLink>: average km of an active
-            vehicle-day per weekday, with ±1σ error bars.
-          </li>
-          <li>
             <ChartLink to="/#soh-odometer">Battery State of Health vs Latest Odometer</ChartLink>: one dot per
             vehicle from the ~08:30 IST morning reading (● bus, ◆ truck). Hollow = don't trust it: a flat 100% default,
             or a live odometer far below the vehicle's history (likely a reset).

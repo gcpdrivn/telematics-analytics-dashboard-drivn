@@ -227,11 +227,6 @@ export function GlossaryPage() {
             that day's vehicles in a distance band (0 km days included). Click a cell to list them in the{" "}
             <ChartLink to="/#duty-inspector">Duty Inspector</ChartLink>.
           </li>
-          <li>
-            <ChartLink to="/#vehicle-trajectory">Vehicle Distance Trajectory (by SoC)</ChartLink>: daily km for five
-            vehicles spread from lowest to highest km/SoC. A break in a line = no report; a point at 0 = reported, didn't
-            move.
-          </li>
         </ul>
         <GTable
           head={["Distance bands", "Buses (and \"All\")", "Trucks"]}

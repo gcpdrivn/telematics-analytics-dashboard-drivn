@@ -69,7 +69,7 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
           </div>
         </div>
         <div>
-          <div className="stat-item-label">Total Engine Hrs</div>
+          <div className="stat-item-label">Total Operating Hrs</div>
           <div className="stat-item-val">
             {c.total_hours.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
             <span style={{ fontSize: "0.75rem" }}>h</span>

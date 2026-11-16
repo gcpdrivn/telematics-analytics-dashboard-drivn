@@ -1,13 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getSohOdometer, getVehicleTrajectories } from "../api/client"
-import type {
-  CrosstabResponse,
-  CustomerAnalytics,
-  CustomerName,
-  KpiSummary,
-  SohOdometerResponse,
-  TrajectoryResponse,
-} from "../api/types"
+import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getSohOdometer } from "../api/client"
+import type { CrosstabResponse, CustomerAnalytics, CustomerName, KpiSummary, SohOdometerResponse } from "../api/types"
 import { CustomerCard } from "../components/CustomerCard"
 import { CustomerSelector } from "../components/CustomerSelector"
 import { DailyDistanceBar } from "../components/CustomerCharts/DailyDistanceBar"
@@ -18,7 +11,6 @@ import { ALL_CUSTOMERS } from "../components/CustomerCharts/colors"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
 import { UptimeTable } from "../components/UptimeTable"
-import { VehicleTrajectoryChart } from "../components/VehicleTrajectoryChart"
 import { useCustomerFilter } from "../hooks/useCustomerFilter"
 import { useDateRange } from "../hooks/useDateRange"
 
@@ -30,12 +22,6 @@ export function CustomersPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [crosstab, setCrosstab] = useState<CrosstabResponse | null>(null)
-
-  // The trajectory endpoint requires one specific customer -- there's no
-  // "All" for it, so picking "All" in the page filter defaults it to the
-  // roster's first customer rather than leaving it unfiltered.
-  const trajCust: CustomerName = customer === "All" ? ALL_CUSTOMERS[0] : customer
-  const [trajectory, setTrajectory] = useState<TrajectoryResponse | null>(null)
 
   // Not date-ranged: SoH and odometer are both "as of the last morning ping".
   const [soh, setSoh] = useState<SohOdometerResponse | null>(null)
@@ -68,15 +54,6 @@ export function CustomersPage() {
       cancelled = true
     }
   }, [customer, range.start, range.end])
-
-  useEffect(() => {
-    let cancelled = false
-    setTrajectory(null)
-    getVehicleTrajectories(trajCust, range).then((d) => !cancelled && setTrajectory(d))
-    return () => {
-      cancelled = true
-    }
-  }, [trajCust, range.start, range.end])
 
   const filteredCustomers = useMemo(() => {
     if (!analytics) return []
@@ -145,23 +122,6 @@ export function CustomersPage() {
         <div className="panel-header">Daily Distance Compartments & Fleet Dispersion</div>
         <div className="panel-body">
           {crosstab && <CrosstabMatrix data={crosstab} customer={customer} />}
-        </div>
-      </div>
-
-      <div className="panel" id="vehicle-trajectory">
-        <div className="panel-header">Vehicle Distance Trajectory (by SoC)</div>
-        <div className="panel-body">
-          {customer === "All" && (
-            <div className="muted" style={{ marginBottom: "0.75rem" }}>
-              Showing {trajCust} (first customer) — pick a specific customer above to see theirs.
-            </div>
-          )}
-          {trajectory && (
-            <>
-              <div className="insight-box" dangerouslySetInnerHTML={{ __html: trajectory.notice }} />
-              <VehicleTrajectoryChart data={trajectory} />
-            </>
-          )}
         </div>
       </div>
     </>

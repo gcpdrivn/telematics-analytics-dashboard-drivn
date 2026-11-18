@@ -23,7 +23,7 @@ export function formatIndian(val: number, decimals = 0): string {
   return (isNeg ? "-" : "") + res + (decPart ? "." + decPart : "")
 }
 
-export function KpiCards({ kpi }: { kpi: KpiSummary }) {
+export function KpiCards({ kpi, hideFleetBreakdown = false }: { kpi: KpiSummary; hideFleetBreakdown?: boolean }) {
   return (
     <div className="kpi-row" id="kpi-cards">
       <div className="kpi-box">
@@ -34,8 +34,6 @@ export function KpiCards({ kpi }: { kpi: KpiSummary }) {
         <div className="kpi-sub">
           ⚡ {formatIndian(kpi.per_veh_daily_dist)} {kpi.dist_unit_sub}
         </div>
-        <div className="kpi-prior">Under Operation: {formatIndian(kpi.total_distance)} km</div>
-        <div className="kpi-prior">Total Lifetime Distance Verified: {formatIndian(kpi.total_lifetime_distance)} km</div>
       </div>
 
       <div className="kpi-box">
@@ -52,7 +50,7 @@ export function KpiCards({ kpi }: { kpi: KpiSummary }) {
       <div className="kpi-box">
         <div className="kpi-label">{kpi.fleet_label}</div>
         <div className="kpi-num">{kpi.total_vehicles}</div>
-        <div className="kpi-sub">{kpi.fleet_breakdown}</div>
+        {!hideFleetBreakdown && <div className="kpi-sub">{kpi.fleet_breakdown}</div>}
         <div className="kpi-prior">{kpi.fleet_prior}</div>
       </div>
 

@@ -427,8 +427,11 @@ def _fleet_breakdown_and_prior(
             f"{n_bus} Buses ({counts_str(bus_customers)}) • "
             f"{n_truck} Trucks ({counts_str(truck_customers)})"
         )
-        present = [c for c in CUSTOMERS if counts.get(c, 0) > 0]
-        prior = f"{n_veh} Active Commercial Assets ({', '.join(present)})"
+        if scope_key == "customers":
+            prior = f"{n_bus} Buses • {n_truck} Trucks"
+        else:
+            present = [c for c in CUSTOMERS if counts.get(c, 0) > 0]
+            prior = f"{n_veh} Active Commercial Assets ({', '.join(present)})"
     return breakdown, prior
 
 

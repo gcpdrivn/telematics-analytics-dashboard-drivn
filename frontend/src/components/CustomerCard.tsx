@@ -13,12 +13,6 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
           <div className="customer-name">{c.customer}</div>
           <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.oem}</div>
         </div>
-        <div className="customer-badge">
-          <div>{c.vehicle_count} Vehicles</div>
-          <div>
-            {c.vol_tier} ({c.avg_cv_pct.toFixed(0)}% Volatility)
-          </div>
-        </div>
       </div>
 
       <div className="customer-route">📍 {c.route}</div>
@@ -40,10 +34,10 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
         </div>
         <div className="customer-metric-pill">
           <span>
-            📈 <b>Daily KM Volatility:</b>
+            📅 <b>Active Days:</b>
           </span>
-          <span className={`volatility-tag ${c.vol_class}`} style={{ fontWeight: 700 }}>
-            {c.avg_cv_pct.toFixed(1)}% ({c.vol_tier})
+          <span style={{ fontWeight: 700 }}>
+            {c.total_days_avg > 0 ? `${((c.active_days_avg / c.total_days_avg) * 100).toFixed(1)}%` : "—"}
           </span>
         </div>
       </div>
@@ -60,19 +54,6 @@ export function CustomerCard({ customer }: { customer: CustomerProfile }) {
           <div className="stat-item-val">
             {c.total_distance.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
             <span style={{ fontSize: "0.75rem" }}>km</span>
-          </div>
-        </div>
-        <div>
-          <div className="stat-item-label">Active Days Avg</div>
-          <div className="stat-item-val">
-            {c.active_days_avg.toFixed(1)} / {c.total_days_avg < 10 ? c.total_days_avg.toFixed(1) : c.total_days_avg.toFixed(0)} d
-          </div>
-        </div>
-        <div>
-          <div className="stat-item-label">Total Operating Hrs</div>
-          <div className="stat-item-val">
-            {c.total_hours.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
-            <span style={{ fontSize: "0.75rem" }}>h</span>
           </div>
         </div>
       </div>

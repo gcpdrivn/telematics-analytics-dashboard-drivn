@@ -70,7 +70,7 @@ export function DateRangePicker() {
   })
 
   const label = isFullRange
-    ? "Full range"
+    ? "Lifetime"
     : (activePreset?.label ?? `${range.start ?? bounds.min} → ${range.end ?? bounds.max}`)
 
   return (
@@ -91,7 +91,7 @@ export function DateRangePicker() {
               </button>
             ))}
             <button className={`seg-pill ${isFullRange ? "active" : ""}`} onClick={clearRange}>
-              Full range
+              Lifetime
             </button>
           </div>
           <div className="date-range-custom">

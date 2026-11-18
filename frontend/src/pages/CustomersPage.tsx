@@ -79,11 +79,15 @@ export function CustomersPage() {
 
   return (
     <>
-      <KpiCards kpi={kpi} />
+      <KpiCards kpi={kpi} hideFleetBreakdown />
 
       <div className="panel filter-bar">
         <span className="filter-bar-label">Filter by Customer</span>
-        <CustomerSelector value={customer} onChange={setCustomer} />
+        <CustomerSelector
+          value={customer}
+          onChange={setCustomer}
+          counts={Object.fromEntries(analytics.customers_all.map((c) => [c.customer, c.vehicle_count]))}
+        />
       </div>
 
       <div className="panel" id="key-customer-accounts">

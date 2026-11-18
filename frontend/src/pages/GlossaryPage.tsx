@@ -161,7 +161,7 @@ export function GlossaryPage() {
         <GTable
           head={["When", "Header", "Verified"]}
           rows={[
-            ["Range is not Full range", "Unchanged", "Lower: only the selected dates' km are added"],
+            ["Range is not Lifetime", "Unchanged", "Lower: only the selected dates' km are added"],
             ["Buses or Trucks page", "Whole fleet", "That page's vehicles only"],
             ["Vehicle didn't drive in the range", "Included", "Left out"],
             ["Odometer jumps 1,500+ km and stays", "Higher", "Jump ignored"],
@@ -169,7 +169,7 @@ export function GlossaryPage() {
             ["Silent gap with untrustworthy readings either side", "Includes the km", "Lower: those km are lost"],
           ]}
         />
-        <p>On Full range with clean readings the two are almost equal.</p>
+        <p>On Lifetime with clean readings the two are almost equal.</p>
 
         <h3>
           <ChartLink to="/#kpi-cards">KPI cards</ChartLink>

@@ -9,11 +9,14 @@ export function CustomerSelector({
   onChange,
   includeAll = true,
   customers = ALL_CUSTOMERS,
+  counts,
 }: {
   value: CrosstabCustomer
   onChange: (c: CrosstabCustomer) => void
   includeAll?: boolean
   customers?: CustomerName[]
+  /** Optional vehicle count per customer, shown in brackets after the name. */
+  counts?: Partial<Record<CustomerName, number>>
 }) {
   const options: CrosstabCustomer[] = includeAll ? ["All", ...customers] : customers
 
@@ -22,6 +25,7 @@ export function CustomerSelector({
       {options.map((c) => (
         <button key={c} className={`seg-pill ${value === c ? "active" : ""}`} onClick={() => onChange(c)}>
           {c}
+          {c !== "All" && counts?.[c] !== undefined ? ` (${counts[c]})` : ""}
         </button>
       ))}
     </div>

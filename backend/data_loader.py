@@ -15,6 +15,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pandas as pd
 from google.api_core.exceptions import NotFound
@@ -22,6 +23,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 from backend import metrics
+from ingestion.api_transform import MAX_PLAUSIBLE_DAILY_DISTANCE_KM
 from ingestion.config import Settings, load_settings
 
 _UTILIZATION_RENAMES = {
@@ -89,6 +91,119 @@ if DISTANCE_SOURCE not in _VALID_DISTANCE_SOURCES:
     )
 
 logger = logging.getLogger(__name__)
+
+# LOCAL-ONLY overlay: extra vehicles that exist in Fleetx without a number
+# plate, built by local/build_extra_vehicles.py into pickles and merged in
+# here. Off unless LOCAL_EXTRA_VEHICLES_DIR is set (only in a local .env --
+# never on Cloud Run), so the deployed backend is unaffected.
+_EXTRA_DIR = os.environ.get("LOCAL_EXTRA_VEHICLES_DIR", "").strip()
+_BASE_FIXED_FLEET_SIZE = dict(metrics.FIXED_FLEET_SIZE)
+
+
+def _extra(name: str) -> pd.DataFrame | None:
+    if not _EXTRA_DIR:
+        return None
+    path = Path(_EXTRA_DIR)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parent.parent / path
+    file = path / f"{name}.pkl"
+    return pd.read_pickle(file) if file.exists() else None
+
+
+# LOCAL-ONLY "Fleetx mirror": local/build_fleetx_mirror.py writes
+# local/fleetx/{daily,energy,live}.pkl so the localhost dashboard shows the
+# numbers the Fleetx app shows -- daily km = sum of Fleetx's own trip
+# distances, odometer/SoH = Fleetx's merged vehicle view, km/kWh = Fleetx's
+# own figures (copied as-is). Used only when LOCAL_FLEETX_DIR is set (a local
+# .env line, never on Cloud Run), so the deployed backend is unaffected.
+_FLEETX_DIR = os.environ.get("LOCAL_FLEETX_DIR", "").strip()
+ENERGY_WINDOWS = (3, 7, 15)
+
+
+def _fleetx(name: str) -> pd.DataFrame | None:
+    if not _FLEETX_DIR:
+        return None
+    path = Path(_FLEETX_DIR)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parent.parent / path
+    file = path / f"{name}.pkl"
+    return pd.read_pickle(file) if file.exists() else None
+
+
+def apply_fleetx_distance(df_clean: pd.DataFrame) -> pd.DataFrame:
+    """Daily Distance = Fleetx's own trip-distance total for that vehicle-day
+    (what Fleetx's History 'Daily KM's' shows), in place of the odometer
+    difference. No-op unless the local Fleetx mirror is on."""
+    daily = _fleetx("daily")
+    if daily is None or daily.empty:
+        return df_clean
+    km = {(p, pd.Timestamp(d)): v for p, d, v in zip(daily["base_license_plate"], daily["date"], daily["km"])}
+    df_clean = df_clean.copy()
+    keys = zip(df_clean["Base License Plate"], df_clean["Report Date"].dt.normalize())
+    fleetx_km = pd.Series([km.get(k) for k in keys], index=df_clean.index, dtype="float64")
+    has = fleetx_km.notna()
+    df_clean["Distance"] = fleetx_km.where(has, df_clean["Distance"])
+    # Same plausibility cap as the ingestion pipeline: a day total at or above
+    # it is a device fault (e.g. a 2,097,151.9 km overflow), blanked -- also
+    # for the few days Fleetx's trip list lacks, which keep the stored value.
+    df_clean.loc[df_clean["Distance"] >= MAX_PLAUSIBLE_DAILY_DISTANCE_KM, "Distance"] = float("nan")
+    # Fleetx's totals carry no odometer boundary-gap distance.
+    df_clean["Boundary Gap Distance"] = float("nan")
+    return df_clean
+
+
+def _with_energy(active_stats: pd.DataFrame) -> pd.DataFrame:
+    """Adds the Fleetx mirror's per-vehicle figures: km/kWh (lifetime and
+    last 3/7/15 days) and the odometer as the app shows it."""
+    energy, daily, live = _fleetx("energy"), _fleetx("daily"), _fleetx("live")
+    if energy is None:
+        return active_stats
+    active_stats = active_stats.copy()
+    plates = active_stats["Base License Plate"]
+    e = energy.set_index("base_license_plate")
+    active_stats["energy_kwh"] = plates.map(e["energy_kwh"])
+    active_stats["energy_km_per_kwh"] = plates.map(e["energy_km_per_kwh"])
+    # Last 3 / 7 / 15 days, Fleetx's formula: all trip km / kWh of the trips
+    # with an energy reading, ending on the last complete day in the file.
+    if daily is not None and not daily.empty:
+        end = max(daily["date"])
+        windows: dict[str, dict] = {}
+        for n in ENERGY_WINDOWS:
+            part = daily[daily["date"] > end - dt.timedelta(days=n)]
+            sums = part.groupby("base_license_plate")[["km", "kwh"]].sum()
+            for plate, row in sums.iterrows():
+                windows.setdefault(plate, {})[str(n)] = {
+                    "km": round(float(row["km"]), 1),
+                    "kwh": round(float(row["kwh"]), 1),
+                    "km_per_kwh": round(float(row["km"] / row["kwh"]), 3) if row["kwh"] > 0 else None,
+                }
+        active_stats["energy_windows"] = plates.map(lambda p: windows.get(p))
+        active_stats["energy_window_end"] = end.isoformat()
+    # Odometer = the app's vehicle card (merged live view). A reading far
+    # below the vehicle's own history (e.g. a merged view briefly showing
+    # 46 km for a 12,000 km truck) is a Fleetx glitch: keep history then.
+    if live is not None and not live.empty:
+        fx_odo = plates.map(live.set_index("base_license_plate")["odometer_km"])
+        hist = active_stats["final_odometer"]
+        glitch = fx_odo.notna() & hist.notna() & (hist > 1000) & (fx_odo < 0.5 * hist)
+        use = fx_odo.notna() & (fx_odo > 0) & ~glitch
+        active_stats["final_odometer"] = fx_odo.where(use, hist)
+        active_stats["live_odometer_km"] = active_stats["final_odometer"]
+    return active_stats
+
+
+def fleetx_odometer_total() -> dict | None:
+    """Whole-fleet odometer = sum of the app's per-vehicle odometers (local
+    Fleetx mirror only; None = use the normal calculation)."""
+    live = _fleetx("live")
+    if live is None or live.empty:
+        return None
+    stats = get_clean_context()["active_stats"]
+    as_of = pd.to_datetime(live["reported_at"]).max()
+    return {
+        "total_odometer": round(float(stats["final_odometer"].sum(skipna=True))),
+        "as_of_date": as_of.tz_convert("Asia/Kolkata").strftime("%Y-%m-%d") if pd.notna(as_of) else "",
+    }
 
 
 class _TTLCache:
@@ -222,6 +337,23 @@ def _load_all() -> dict[str, pd.DataFrame]:
             else None
         )
 
+    # LOCAL-ONLY overlay (see _extra) -- a no-op unless LOCAL_EXTRA_VEHICLES_DIR is set.
+    extra_util, extra_dim, extra_odo = _extra("utilization"), _extra("dim_vehicle"), _extra("odometer_resolved")
+    if extra_util is not None and extra_dim is not None:
+        raw_df = pd.concat([raw_df, extra_util.rename(columns=_UTILIZATION_RENAMES)], ignore_index=True)
+        dim_vehicle = pd.concat([dim_vehicle, extra_dim], ignore_index=True)
+        if odometer_df is not None and extra_odo is not None:
+            odometer_df = pd.concat(
+                [odometer_df, extra_odo[list(_ODOMETER_RESOLVED_RENAMES)].rename(columns=_ODOMETER_RESOLVED_RENAMES)],
+                ignore_index=True,
+            )
+        # FreshBus/ZingBus use a fixed fleet size as the active-% denominator;
+        # grow it by the extra buses so their active % can't exceed 100%.
+        added = extra_dim["customer_name"].value_counts()
+        for cust, base in _BASE_FIXED_FLEET_SIZE.items():
+            metrics.FIXED_FLEET_SIZE[cust] = base + int(added.get(cust, 0))
+        logger.info("Local overlay: added %d extra vehicle(s) from %s", len(extra_dim), _EXTRA_DIR)
+
     return {
         "raw_utilization": raw_df,
         "dim_vehicle": dim_vehicle,
@@ -290,6 +422,7 @@ def _clean_df(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         # here rather than enriching a "reported"-mode total with a number
         # the dashboard isn't otherwise trusting.
         df_clean["Boundary Gap Distance"] = float("nan")
+    df_clean = apply_fleetx_distance(df_clean)  # LOCAL-ONLY, no-op unless LOCAL_FLEETX_DIR is set
     mileage_valid = metrics.valid_mileage_map(tables["mileage"])
     return df_clean, mileage_valid
 
@@ -335,7 +468,7 @@ def get_clean_context(
         # `derived` bundle -- Bus tenure (build_active_stats) depends on this
         # being the size of the window actually in scope here.
         observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
-        active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
+        active_stats = _with_energy(metrics.build_active_stats(df_clean, mileage_valid, observation_days))
 
     return {
         "df_clean": df_clean,
@@ -368,7 +501,7 @@ def get_crosstab_matrix(
 def _build_derived(tables: dict[str, pd.DataFrame]) -> dict:
     df_clean, mileage_valid = _clean_df(tables)
     observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
-    active_stats = metrics.build_active_stats(df_clean, mileage_valid, observation_days)
+    active_stats = _with_energy(metrics.build_active_stats(df_clean, mileage_valid, observation_days))
     return {
         "df_clean": df_clean,
         "mileage_valid": mileage_valid,
@@ -397,9 +530,41 @@ def _load_soh_odometer() -> pd.DataFrame:
         LEFT JOIN history h ON h.base_license_plate = s.base_license_plate AND h.rn = 1
     """
     try:
-        return _query_df(get_client(), sql)
+        df = _query_df(get_client(), sql)
     except NotFound:
-        return pd.DataFrame()
+        df = pd.DataFrame()
+
+    # LOCAL-ONLY overlay (see _extra): same columns as the query above.
+    extra_soh, extra_dim, extra_odo = _extra("soh_latest"), _extra("dim_vehicle"), _extra("odometer_resolved")
+    if extra_soh is not None and extra_dim is not None and not extra_soh.empty:
+        extra = extra_soh.merge(
+            extra_dim[["base_license_plate", "customer_name", "vehicle_type", "oem", "vehicle_model"]],
+            on="base_license_plate",
+        )
+        if extra_odo is not None:
+            hist = (
+                extra_odo[extra_odo["closing_odometer_clean"] > 0]
+                .sort_values("report_date")
+                .groupby("base_license_plate")
+                .last()[["closing_odometer_clean", "report_date"]]
+                .rename(columns={"closing_odometer_clean": "history_odometer_km", "report_date": "history_odometer_date"})
+                .reset_index()
+            )
+            extra = extra.merge(hist, on="base_license_plate", how="left")
+        df = pd.concat([df, extra], ignore_index=True)
+
+    # LOCAL-ONLY Fleetx mirror: odometer and SoH as the app's vehicle card
+    # shows them (merged view), where it has a value.
+    live = _fleetx("live")
+    if live is not None and not live.empty and not df.empty:
+        lv = live.set_index("base_license_plate")
+        plates = df["base_license_plate"]
+        odo = plates.map(lv["odometer_km"])
+        df["odometer_km"] = odo.where(odo.notna() & (odo > 0), df["odometer_km"])
+        df["odometer_raw_km"] = df["odometer_km"]
+        soh = plates.map(lv["soh_pct"])
+        df["soh_pct"] = soh.where(soh.notna(), df["soh_pct"])
+    return df
 
 
 def get_soh_odometer() -> pd.DataFrame:

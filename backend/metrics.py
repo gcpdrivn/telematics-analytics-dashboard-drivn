@@ -1023,6 +1023,19 @@ def build_vehicle_roster(active_stats: pd.DataFrame) -> list[dict]:
                 "total_hours": round(float(r["total_hours"]), 1),
                 "final_odometer": float(r["final_odometer"]) if pd.notna(r["final_odometer"]) else None,
                 "mileage_km_soc": float(r["mileage_km_soc"]) if pd.notna(r["mileage_km_soc"]) else None,
+                # Lifetime energy (kWh to date, Fleetx) and lifetime km/kWh for
+                # the Energy Efficiency vs Odometer card. No ingestion feeds
+                # these columns yet, so .get() keeps them null until one does.
+                "energy_kwh": float(r.get("energy_kwh")) if pd.notna(r.get("energy_kwh")) else None,
+                "energy_km_per_kwh": float(r.get("energy_km_per_kwh"))
+                if pd.notna(r.get("energy_km_per_kwh"))
+                else None,
+                "live_odometer_km": float(r.get("live_odometer_km"))
+                if pd.notna(r.get("live_odometer_km"))
+                else None,
+                # {"3"|"7"|"15": {km, kwh, km_per_kwh}} for the card's period filter.
+                "energy_windows": r.get("energy_windows") if isinstance(r.get("energy_windows"), dict) else None,
+                "energy_window_end": r.get("energy_window_end") if isinstance(r.get("energy_window_end"), str) else None,
                 "est_daily_soc_pct": float(r["est_daily_soc_pct"])
                 if pd.notna(r["est_daily_soc_pct"])
                 else None,

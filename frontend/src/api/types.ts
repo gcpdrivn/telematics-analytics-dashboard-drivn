@@ -165,6 +165,26 @@ export interface VehicleRecord {
   volatility_tier: string
   volatility_class: string
   daily_distance_history: (number | null)[]
+  /** Lifetime energy consumed to date, kWh (Fleetx). Optional/null until the
+   * backend serves it -- the Energy Efficiency vs Odometer card leaves such
+   * vehicles unplotted rather than guessing. */
+  energy_kwh?: number | null
+  /** Lifetime km ÷ lifetime kWh (final_odometer ÷ energy_kwh). */
+  energy_km_per_kwh?: number | null
+  /** Live odometer as of the last morning ping (same reading as the SoH chart). */
+  live_odometer_km?: number | null
+  /** km/kWh over the last 3 / 7 / 15 complete days (keys "3", "7", "15"); absent = no energy trips then. */
+  energy_windows?: Partial<Record<EnergyWindow, EnergyWindowStats>> | null
+  /** Last day those windows end on (YYYY-MM-DD). */
+  energy_window_end?: string | null
+}
+
+export type EnergyWindow = "3" | "7" | "15"
+
+export interface EnergyWindowStats {
+  km: number
+  kwh: number
+  km_per_kwh: number | null
 }
 
 export interface VehiclesResponse {

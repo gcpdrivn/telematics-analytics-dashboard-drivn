@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
-import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getSohOdometer } from "../api/client"
-import type { CrosstabResponse, CustomerAnalytics, CustomerName, KpiSummary, SohOdometerResponse } from "../api/types"
+import { getCrosstabMatrix, getCustomerAnalytics, getKpiSummary, getSohOdometer, getVehicles } from "../api/client"
+import type {
+  CrosstabResponse,
+  CustomerAnalytics,
+  KpiSummary,
+  SohOdometerResponse,
+  VehicleRecord,
+} from "../api/types"
 import { CustomerCard } from "../components/CustomerCard"
 import { CustomerSelector } from "../components/CustomerSelector"
 import { DailyDistanceBar } from "../components/CustomerCharts/DailyDistanceBar"
 import { ShareDonut } from "../components/CustomerCharts/ShareDonut"
-import { ActiveTimelineChart } from "../components/CustomerCharts/ActiveTimelineChart"
 import { SohOdometerChart } from "../components/CustomerCharts/SohOdometerChart"
-import { ALL_CUSTOMERS } from "../components/CustomerCharts/colors"
+import { EfficiencyOdometerChart } from "../components/CustomerCharts/EfficiencyOdometerChart"
 import { CrosstabMatrix } from "../components/CrosstabMatrix"
 import { KpiCards } from "../components/KpiCards"
 import { UptimeTable } from "../components/UptimeTable"
@@ -28,6 +33,15 @@ export function CustomersPage() {
   const [sohError, setSohError] = useState<string | null>(null)
   useEffect(() => {
     getSohOdometer().then(setSoh).catch((e) => setSohError(String(e)))
+  }, [])
+
+  // Not date-ranged either: both axes are lifetime figures (odometer, kWh to date).
+  const [eff, setEff] = useState<{ buses: VehicleRecord[]; trucks: VehicleRecord[] } | null>(null)
+  const [effError, setEffError] = useState<string | null>(null)
+  useEffect(() => {
+    Promise.all([getVehicles("Bus"), getVehicles("Truck")])
+      .then(([b, t]) => setEff({ buses: b.vehicles, trucks: t.vehicles }))
+      .catch((e) => setEffError(String(e)))
   }, [])
 
   useEffect(() => {
@@ -59,8 +73,6 @@ export function CustomersPage() {
     if (!analytics) return []
     return customer === "All" ? analytics.customers_all : analytics.customers_all.filter((c) => c.customer === customer)
   }, [analytics, customer])
-
-  const filteredTimelineCustomers: CustomerName[] = customer === "All" ? ALL_CUSTOMERS : [customer]
 
   if (error) return <div className="error-box">Failed to load: {error}</div>
   if (!kpi || !analytics) return <div className="loading">Loading customer analytics…</div>
@@ -111,17 +123,19 @@ export function CustomersPage() {
         </div>
       </div>
 
-      <div className="panel" id="active-timeline">
-        <div className="panel-header">Daily Active Commercial Vehicle % Timeline</div>
-        <div className="panel-body">
-          <ActiveTimelineChart timeline={analytics.active_timeline} customers={filteredTimelineCustomers} />
-        </div>
-      </div>
-
       <div className="panel" id="distance-compartments">
         <div className="panel-header">Daily Distance Compartments & Fleet Dispersion</div>
         <div className="panel-body">
           {crosstab && <CrosstabMatrix data={crosstab} customer={customer} />}
+        </div>
+      </div>
+
+      <div className="panel" id="efficiency-odometer">
+        <div className="panel-header">Energy Efficiency vs Odometer</div>
+        <div className="panel-body">
+          {effError && <div className="error-box">Failed to load efficiency data: {effError}</div>}
+          {!eff && !effError && <div className="loading">Loading efficiency data…</div>}
+          {eff && <EfficiencyOdometerChart buses={eff.buses} trucks={eff.trucks} customer={customer} />}
         </div>
       </div>
     </>

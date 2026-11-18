@@ -351,3 +351,20 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .glossary a.chart-link { color: var(--accent-brand); font-weight: 700; text-decoration: none; }
 .glossary a.chart-link:hover { text-decoration: underline; }
 .glossary .chart-link-sample { color: var(--accent-brand); font-weight: 700; }
+
+/* Energy Efficiency vs Odometer card (CustomersPage #efficiency-odometer) */
+.eff-section { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1.25rem; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.eff-section + .eff-section { margin-top: 1rem; }
+@media (max-width: 900px) { .eff-section { grid-template-columns: 1fr; } }
+.eff-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.25rem; }
+.eff-section-head h3 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+.eff-empty { display: flex; align-items: center; justify-content: center; min-height: 220px; padding: 1.5rem; text-align: center; font-size: 0.85rem; border: 1px dashed var(--border-strong); border-radius: 10px; margin-top: 0.75rem; }
+.eff-rail { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem; border-radius: 10px; background: var(--bg-subtle); border: 1px solid var(--border-subtle); }
+.eff-rail h4 { margin: 0; font-size: 0.82rem; font-weight: 700; }
+.eff-rail-divider { height: 1px; background: var(--border-subtle); }
+.eff-bar-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 44px; align-items: center; gap: 0.5rem; font-size: 0.78rem; }
+.eff-bar-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eff-bar-track { height: 10px; border-radius: 5px; background: var(--bg-surface); overflow: hidden; }
+.eff-bar-fill { display: block; height: 100%; border-radius: 5px; }
+.eff-bar-value { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.eff-lowest { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.78rem; }

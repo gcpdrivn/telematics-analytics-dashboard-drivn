@@ -26,6 +26,9 @@ def fleet_odometer_total():
     """Whole-fleet sum of final odometer readings till date. Deliberately takes
     no date/scope/customer params -- the header shows it as a filter-proof
     figure, so it's always computed over the full unfiltered data."""
+    local_total = data_loader.fleetx_odometer_total()  # LOCAL-ONLY Fleetx mirror
+    if local_total is not None:
+        return local_total
     ctx = data_loader.get_clean_context()
     return metrics.build_fleet_odometer_total(
         ctx["df_clean"], OVERFLOW_SENTINEL_KM, GARBAGE_ABS_THRESHOLD_KM

@@ -218,14 +218,16 @@ export function GlossaryPage() {
             or a live odometer far below the vehicle's history (likely a reset).
           </li>
           <li>
-            <ChartLink to="/#active-timeline">Daily Active Commercial Vehicle % Timeline</ChartLink>: share of each
-            fleet that drove each day. The base is 10 buses for FreshBus and ZingBus; for trucks, every vehicle
-            onboarded by that date.
-          </li>
-          <li>
             <ChartLink to="/#distance-compartments">Daily Distance Compartments</ChartLink>: each cell is the share of
             that day's vehicles in a distance band (0 km days included). Click a cell to list them in the{" "}
             <ChartLink to="/#duty-inspector">Duty Inspector</ChartLink>.
+          </li>
+          <li>
+            <ChartLink to="/#efficiency-odometer">Energy Efficiency vs Odometer</ChartLink>: one dot per vehicle, buses
+            and trucks in separate rows (● bus, ◆ truck). x = lifetime odometer (km); y = energy efficiency (km/kWh) =
+            lifetime km ÷ lifetime kWh consumed, from Fleetx. Not affected by the date range. The side panel shows each
+            customer's median km/kWh and the three least efficient vehicles. A vehicle without lifetime kWh yet is listed
+            as not plotted.
           </li>
         </ul>
         <GTable

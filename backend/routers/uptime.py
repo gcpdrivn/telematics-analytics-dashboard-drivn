@@ -22,6 +22,7 @@ def _load_scoped(customer: str | None) -> pd.DataFrame:
     display window to still be resolvable."""
     tables = data_loader.get_tables()
     df_full = metrics.clean_and_join(tables["raw_utilization"], tables["dim_vehicle"], tables["dim_customer"])
+    df_full = data_loader.apply_fleetx_distance(df_full)  # LOCAL-ONLY Fleetx mirror, else a no-op
     if customer and customer != "All":
         if customer not in metrics.CUSTOMERS:
             raise HTTPException(400, f"customer must be one of {VALID_CUSTOMERS}")

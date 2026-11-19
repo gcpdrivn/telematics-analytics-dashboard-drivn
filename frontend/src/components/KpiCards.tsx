@@ -23,9 +23,17 @@ export function formatIndian(val: number, decimals = 0): string {
   return (isNeg ? "-" : "") + res + (decPart ? "." + decPart : "")
 }
 
-export function KpiCards({ kpi, hideFleetBreakdown = false }: { kpi: KpiSummary; hideFleetBreakdown?: boolean }) {
+export function KpiCards({
+  kpi,
+  hideFleetBreakdown = false,
+  hidePeak = false,
+}: {
+  kpi: KpiSummary
+  hideFleetBreakdown?: boolean
+  hidePeak?: boolean
+}) {
   return (
-    <div className="kpi-row" id="kpi-cards">
+    <div className={`kpi-row${hidePeak ? " kpi-row-3" : ""}`} id="kpi-cards">
       <div className="kpi-box">
         <div className="kpi-label">{kpi.dist_label}</div>
         <div className="kpi-num">
@@ -54,14 +62,16 @@ export function KpiCards({ kpi, hideFleetBreakdown = false }: { kpi: KpiSummary;
         <div className="kpi-prior">{kpi.fleet_prior}</div>
       </div>
 
-      <div className="kpi-box">
-        <div className="kpi-label">{kpi.peak_label}</div>
-        <div className="kpi-num" style={{ fontSize: "1.4rem" }}>
-          {kpi.peak_num}
+      {!hidePeak && (
+        <div className="kpi-box">
+          <div className="kpi-label">{kpi.peak_label}</div>
+          <div className="kpi-num" style={{ fontSize: "1.4rem" }}>
+            {kpi.peak_num}
+          </div>
+          <div className="kpi-sub">{kpi.peak_sub}</div>
+          <div className="kpi-prior">{kpi.peak_prior}</div>
         </div>
-        <div className="kpi-sub">{kpi.peak_sub}</div>
-        <div className="kpi-prior">{kpi.peak_prior}</div>
-      </div>
+      )}
     </div>
   )
 }

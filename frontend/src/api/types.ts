@@ -57,6 +57,7 @@ export interface CustomerProfile {
   share_pct: number
   oem: string
   avg_mileage_soc: number | null
+  avg_mileage_kwh?: number | null
   avg_std_active: number
   avg_cv_pct: number
   vol_tier: string

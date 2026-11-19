@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 import Plot from "../../plotly-shim"
 import type { CrosstabCustomer, CustomerName, EnergyWindow, VehicleRecord } from "../../api/types"
 import { ALL_CUSTOMERS, CUSTOMER_COLORS, PLOT_LAYOUT_BASE } from "./colors"
 
 type VehicleType = "Bus" | "Truck"
-type Period = "lifetime" | EnergyWindow
+type Period = Extract<EnergyWindow, "7" | "3">
 
 const PERIOD_OPTIONS: { value: Period; label: string }[] = [
-  { value: "lifetime", label: "Lifetime" },
-  { value: "15", label: "Last 15 days" },
   { value: "7", label: "Last 7 days" },
   { value: "3", label: "Last 3 days" },
 ]
@@ -20,62 +19,49 @@ interface EffPoint {
   kwh: number | null
 }
 
-/** A vehicle is plotted only with both a positive odometer and a positive
- * km/kWh for the selected period: lifetime km ÷ lifetime kWh, or km ÷ kWh
- * over the last 3 / 7 / 15 complete days, all from Fleetx trips. A vehicle
- * with no energy trips in the period lands in "not plotted" rather than
- * being drawn at a made-up value. */
+/** Plotted only with a positive odometer and a positive km/kWh for the
+ * selected period (km ÷ kWh over the last 7 or 3 complete days, from Fleetx).
+ * A vehicle with no energy trips in the period is listed as not plotted. */
 function toPoint(v: VehicleRecord, period: Period): EffPoint | null {
-  // Morning-ping odometer first; the history-derived one only as a fallback.
   const odometer = v.live_odometer_km != null && v.live_odometer_km > 0 ? v.live_odometer_km : v.final_odometer
-  const win = period === "lifetime" ? null : v.energy_windows?.[period] ?? null
-  const kmPerKwh = period === "lifetime" ? v.energy_km_per_kwh ?? null : win?.km_per_kwh ?? null
-  const kwh = period === "lifetime" ? v.energy_kwh ?? null : win?.kwh ?? null
+  const win = v.energy_windows?.[period] ?? null
+  const kmPerKwh = win?.km_per_kwh ?? null
   if (odometer == null || !(odometer > 0) || kmPerKwh == null || !(kmPerKwh > 0)) return null
-  return { v, odometer, kmPerKwh, kwh }
+  return { v, odometer, kmPerKwh, kwh: win?.kwh ?? null }
 }
 
-function formatDay(iso: string | null | undefined): string {
-  if (!iso) return ""
+function formatDay(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
 }
 
-function periodText(period: Period, end: string | null | undefined): string {
-  if (period === "lifetime") return "lifetime km ÷ lifetime kWh"
+function periodText(period: Period, end: string | null): string {
   const n = Number(period)
   if (!end) return `km ÷ kWh over the last ${n} days`
   const start = new Date(`${end}T00:00:00`)
   start.setDate(start.getDate() - (n - 1))
-  return `km ÷ kWh over the last ${n} days (${formatDay(start.toISOString().slice(0, 10))} – ${formatDay(end)})`
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null
-  const s = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(s.length / 2)
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+  const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`
+  return `km ÷ kWh over the last ${n} days (${formatDay(startIso)} – ${formatDay(end)})`
 }
 
 const fmtKm = (n: number) => `${Math.round(n).toLocaleString("en-IN")} km`
 const fmtEff = (n: number) => `${n.toFixed(2)} km/kWh`
 
-/** Energy Efficiency vs Odometer (design option C): one row per vehicle type,
- * each a scatter (lifetime odometer × lifetime km/kWh, one dot per vehicle,
- * one trace per customer) beside a rail with each customer's median km/kWh
- * and the three least efficient vehicles. Not date-ranged: both axes are
- * lifetime figures. Both rows share one y-range so the same height means the
- * same km/kWh for a bus and a truck. */
+/** Energy Efficiency vs Odometer: EV Buses and Trucks side by side, one dot
+ * per vehicle (odometer × km/kWh), one colour per customer. Both charts share
+ * one y-range so the same height means the same km/kWh. */
 export function EfficiencyOdometerChart({
   buses,
   trucks,
   customer,
+  oemByCustomer = {},
 }: {
   buses: VehicleRecord[]
   trucks: VehicleRecord[]
   customer: CrosstabCustomer
+  oemByCustomer?: Partial<Record<CustomerName, string>>
 }) {
   const [showTable, setShowTable] = useState(false)
-  const [period, setPeriod] = useState<Period>("lifetime")
+  const [period, setPeriod] = useState<Period>("7")
 
   const inScope = (v: VehicleRecord) => customer === "All" || v.customer === customer
   const busRows = useMemo(() => buses.filter(inScope), [buses, customer])
@@ -90,9 +76,7 @@ export function EfficiencyOdometerChart({
     () => [...buses, ...trucks].find((v) => v.energy_window_end)?.energy_window_end ?? null,
     [buses, trucks]
   )
-  const hasWindows = windowEnd != null
 
-  // Shared y-range across both rows, padded 10% each side.
   const yRange = useMemo<[number, number] | undefined>(() => {
     const ys = [...busPoints, ...truckPoints].map((p) => p.kmPerKwh)
     if (ys.length === 0) return undefined
@@ -106,8 +90,12 @@ export function EfficiencyOdometerChart({
 
   return (
     <>
-      {hasWindows && (
-        <div className="filter-bar" style={{ padding: 0, marginBottom: "0.5rem" }}>
+      <div className="eff-top">
+        <p className="muted eff-subtitle">
+          One dot per vehicle · {periodText(period, windowEnd)} from Fleetx · odometer as of the last morning ping, not
+          filtered by date range
+        </p>
+        <div className="eff-top-actions">
           <div className="customer-nav">
             {PERIOD_OPTIONS.map((o) => (
               <button
@@ -119,36 +107,58 @@ export function EfficiencyOdometerChart({
               </button>
             ))}
           </div>
+          <Link className="eff-help" to="/glossary#page-by-page">
+            What is km/kWh?
+          </Link>
         </div>
-      )}
-      <p className="muted" style={{ fontSize: "0.8rem", margin: "0 0 1rem" }}>
-        One dot per vehicle · km/kWh = {periodText(period, windowEnd)} from Fleetx · odometer as of the morning ping ·
-        not filtered by the page's date range · ● bus ◆ truck · click a customer in a legend to hide it, double-click
-        to isolate
-      </p>
+      </div>
 
-      <EfficiencySection title="EV Buses" type="Bus" rows={busRows} points={busPoints} yRange={yRange} period={period} />
-      <EfficiencySection title="Trucks" type="Truck" rows={truckRows} points={truckPoints} yRange={yRange} period={period} />
+      <div className="eff-grid">
+        <EfficiencyCard
+          title="EV Buses"
+          type="Bus"
+          rows={busRows}
+          points={busPoints}
+          yRange={yRange}
+          period={period}
+          oemByCustomer={oemByCustomer}
+        />
+        <EfficiencyCard
+          title="Trucks"
+          type="Truck"
+          rows={truckRows}
+          points={truckPoints}
+          yRange={yRange}
+          period={period}
+          oemByCustomer={oemByCustomer}
+        />
+      </div>
 
-      {allPoints.length > 0 && (
-        <div style={{ marginTop: "0.75rem" }}>
-          <button className="seg-pill" onClick={() => setShowTable((v) => !v)}>
-            {showTable ? "Hide data table" : "View as table"}
+      <div className="eff-bottom">
+        {allPoints.length > 0 ? (
+          <button className="btn-action" onClick={() => setShowTable((v) => !v)}>
+            {showTable ? "Hide table" : "View as table"}
           </button>
-          {showTable && <EfficiencyTable points={allPoints} period={period} />}
-        </div>
-      )}
+        ) : (
+          <span />
+        )}
+        <span className="muted eff-note">
+          Both charts share one y-axis range · click a customer to hide it, double-click to isolate
+        </span>
+      </div>
+      {showTable && allPoints.length > 0 && <EfficiencyTable points={allPoints} period={period} />}
     </>
   )
 }
 
-function EfficiencySection({
+function EfficiencyCard({
   title,
   type,
   rows,
   points,
   yRange,
   period,
+  oemByCustomer,
 }: {
   title: string
   type: VehicleType
@@ -156,179 +166,133 @@ function EfficiencySection({
   points: EffPoint[]
   yRange: [number, number] | undefined
   period: Period
+  oemByCustomer: Partial<Record<CustomerName, string>>
 }) {
+  const [hidden, setHidden] = useState<Set<CustomerName>>(new Set())
   const symbol = type === "Truck" ? "diamond" : "circle"
-  const kwhLabel = period === "lifetime" ? "kWh consumed to date" : `kWh in the last ${period} days`
 
-  // Fixed roster order, so a customer keeps its colour and legend slot.
-  const byCustomer = ALL_CUSTOMERS.map((c) => ({ c, pts: points.filter((p) => p.v.customer === c) })).filter(
-    (g) => g.pts.length > 0
-  )
+  // Every customer of this type in scope gets a chip (fixed roster order), even
+  // if none of its vehicles is plotted, so the colour key stays stable.
+  const chipCustomers = ALL_CUSTOMERS.filter((c) => rows.some((v) => v.customer === c))
 
-  const traces = byCustomer.map(({ c, pts }) => ({
-    type: "scatter" as const,
-    mode: "markers" as const,
-    name: c,
-    x: pts.map((p) => p.odometer),
-    y: pts.map((p) => p.kmPerKwh),
-    marker: { size: 11, color: CUSTOMER_COLORS[c], symbol, line: { width: 1.5, color: "#ffffff" } },
-    customdata: pts.map((p) => [
-      p.v.plate,
-      [p.v.vehicle_type, p.v.vehicle_model].filter(Boolean).join(" · "),
-      p.kwh != null ? `${Math.round(p.kwh).toLocaleString("en-IN")} ${kwhLabel}` : "",
-    ]),
-    hovertemplate:
-      "<b>%{customdata[0]}</b> · " +
-      c +
-      "<br>%{customdata[1]}<br><b>%{y:.2f} km/kWh</b> at <b>%{x:,.0f} km</b>" +
-      "<br>%{customdata[2]}<extra></extra>",
-  }))
+  const toggle = (c: CustomerName) =>
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(c)) next.delete(c)
+      else next.add(c)
+      return next
+    })
+  const isolate = (c: CustomerName) =>
+    setHidden((prev) => {
+      const others = chipCustomers.filter((x) => x !== c)
+      const alreadyIsolated = !prev.has(c) && others.every((x) => prev.has(x))
+      return alreadyIsolated ? new Set() : new Set(others)
+    })
 
-  const fleetMedian = median(points.map((p) => p.kmPerKwh))
-
-  const customerMedians = byCustomer
-    .map(({ c, pts }) => ({ c, med: median(pts.map((p) => p.kmPerKwh)) as number, n: pts.length }))
-    .sort((a, b) => b.med - a.med)
-  const maxMed = Math.max(0, ...customerMedians.map((m) => m.med))
-
-  const lowest = [...points].sort((a, b) => a.kmPerKwh - b.kmPerKwh).slice(0, 3)
+  const traces = chipCustomers
+    .map((c) => ({ c, pts: points.filter((p) => p.v.customer === c) }))
+    .filter(({ c, pts }) => pts.length > 0 && !hidden.has(c))
+    .map(({ c, pts }) => ({
+      type: "scatter" as const,
+      mode: "markers" as const,
+      name: c,
+      x: pts.map((p) => p.odometer),
+      y: pts.map((p) => p.kmPerKwh),
+      marker: { size: 11, color: CUSTOMER_COLORS[c], symbol, line: { width: 1.5, color: "#ffffff" } },
+      customdata: pts.map((p) => [
+        p.v.plate,
+        [p.v.vehicle_type, (oemByCustomer[c] ?? "").replace(/\s*\((Bus|Truck)\)\s*$/, ""), p.v.vehicle_model]
+          .filter(Boolean)
+          .join(" · "),
+        p.kwh != null ? `${Math.round(p.kwh).toLocaleString("en-IN")} kWh in the last ${period} days` : "",
+      ]),
+      hovertemplate:
+        `<b>%{customdata[0]} · ${c}</b>` +
+        '<br><span style="color:#94a3b8">%{customdata[1]}</span>' +
+        "<br><b>%{y:.2f} km/kWh</b> at <b>%{x:,.0f} km</b>" +
+        '<br><span style="color:#94a3b8">%{customdata[2]}</span><extra></extra>',
+    }))
 
   const plotted = new Set(points.map((p) => p.v.plate))
-  const missing = rows.filter((v) => !plotted.has(v.plate))
   const missingByCustomer = ALL_CUSTOMERS.map(
-    (c) => [c, missing.filter((v) => v.customer === c).length] as [CustomerName, number]
+    (c) => [c, rows.filter((v) => v.customer === c && !plotted.has(v.plate)).length] as [CustomerName, number]
   ).filter(([, n]) => n > 0)
 
   return (
-    <section className="eff-section">
-      <div style={{ minWidth: 0 }}>
-        <div className="eff-section-head">
-          <h3>{title}</h3>
-          <span className="muted" style={{ fontSize: "0.8rem" }}>
-            {points.length} plotted of {rows.length}
-          </span>
-        </div>
-
-        {points.length === 0 ? (
-          <div className="eff-empty muted">
-            {rows.length === 0
-              ? "No vehicles of this type match the customer filter."
-              : "No vehicle has lifetime energy (kWh) from Fleetx yet, so there is nothing to plot. Dots appear here once the backend serves energy_km_per_kwh."}
-          </div>
-        ) : (
-          <Plot
-            data={traces}
-            layout={{
-              ...PLOT_LAYOUT_BASE,
-              height: 360,
-              margin: { l: 60, r: 20, t: 10, b: 50 },
-              hovermode: "closest",
-              uirevision: `${type}|${rows.length}|${period}`,
-              xaxis: {
-                title: { text: "Lifetime odometer (km)" },
-                rangemode: "tozero",
-                tickformat: ",.0f",
-                zeroline: false,
-                gridcolor: "rgba(148,163,184,0.18)",
-              },
-              yaxis: {
-                title: { text: "Energy efficiency (km/kWh)" },
-                range: yRange,
-                tickformat: ".1f",
-                zeroline: false,
-                gridcolor: "rgba(148,163,184,0.18)",
-              },
-              shapes:
-                fleetMedian != null
-                  ? [
-                      {
-                        type: "line",
-                        xref: "paper",
-                        x0: 0,
-                        x1: 1,
-                        y0: fleetMedian,
-                        y1: fleetMedian,
-                        line: { color: "rgba(100,116,139,0.8)", width: 1, dash: "dash" },
-                      },
-                    ]
-                  : [],
-              annotations:
-                fleetMedian != null
-                  ? [
-                      {
-                        xref: "paper",
-                        x: 1,
-                        y: fleetMedian,
-                        xanchor: "right",
-                        yanchor: "bottom",
-                        showarrow: false,
-                        text: `Median ${fleetMedian.toFixed(2)}`,
-                        font: { size: 11, color: "rgba(100,116,139,1)" },
-                      },
-                    ]
-                  : [],
-              showlegend: true,
-              legend: { orientation: "h", x: 0, y: 1.02, yanchor: "bottom", itemclick: "toggle", itemdoubleclick: "toggleothers" },
-            }}
-            config={{ responsive: true, displayModeBar: false }}
-            style={{ width: "100%" }}
-            useResizeHandler
-          />
-        )}
-
-        {missingByCustomer.length > 0 && (
-          <div className="muted" style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}>
-            Not plotted, no kWh from Fleetx {period === "lifetime" ? "yet" : `in the last ${period} days`}:{" "}
-            {missingByCustomer.map(([c, n]) => `${c} (${n})`).join(", ")}.
-          </div>
-        )}
+    <section className="eff-card">
+      <div className="eff-card-head">
+        <h3>{title}</h3>
+        <span className="muted">
+          {points.length} plotted of {rows.length} · {type === "Truck" ? "◆ diamond" : "● circle"}
+        </span>
       </div>
 
-      <aside className="eff-rail">
-        <div>
-          <h4>Median km/kWh by customer</h4>
-          <span className="muted" style={{ fontSize: "0.75rem" }}>
-            Best to worst
-          </span>
+      {chipCustomers.length > 0 && (
+        <div className="eff-chips">
+          {chipCustomers.map((c) => (
+            <button
+              key={c}
+              className={`eff-chip ${hidden.has(c) ? "off" : ""}`}
+              onClick={() => toggle(c)}
+              onDoubleClick={() => isolate(c)}
+              title="Click to hide, double-click to isolate"
+            >
+              <span className={`eff-chip-mark ${type === "Truck" ? "diamond" : ""}`} style={{ background: CUSTOMER_COLORS[c] }} />
+              {c}
+            </button>
+          ))}
         </div>
-        {customerMedians.length === 0 ? (
-          <span className="muted" style={{ fontSize: "0.8rem" }}>
-            No efficiency data yet.
-          </span>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            {customerMedians.map(({ c, med, n }) => (
-              <div className="eff-bar-row" key={c} title={`${c}: median of ${n} vehicle${n === 1 ? "" : "s"}`}>
-                <span className="eff-bar-name">{c}</span>
-                <span className="eff-bar-track">
-                  <span
-                    className="eff-bar-fill"
-                    style={{ width: `${maxMed > 0 ? (med / maxMed) * 100 : 0}%`, background: CUSTOMER_COLORS[c] }}
-                  />
-                </span>
-                <span className="eff-bar-value">{med.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+      )}
 
-        <div className="eff-rail-divider" />
+      {points.length === 0 ? (
+        <div className="eff-empty muted">
+          {rows.length === 0
+            ? "No vehicles of this type match the customer filter."
+            : `No vehicle has kWh from Fleetx in the last ${period} days, so there is nothing to plot.`}
+        </div>
+      ) : (
+        <Plot
+          data={traces}
+          layout={{
+            ...PLOT_LAYOUT_BASE,
+            height: 340,
+            margin: { l: 60, r: 16, t: 10, b: 50 },
+            hovermode: "closest",
+            hoverlabel: {
+              bgcolor: "#0f172a",
+              bordercolor: "#0f172a",
+              font: { color: "#ffffff", size: 12 },
+              align: "left",
+            },
+            uirevision: `${type}|${rows.length}|${period}`,
+            showlegend: false,
+            xaxis: {
+              title: { text: "Lifetime odometer (km)" },
+              rangemode: "tozero",
+              tickformat: ",.0f",
+              zeroline: false,
+              showgrid: false,
+            },
+            yaxis: {
+              title: { text: "Energy efficiency (km/kWh)" },
+              range: yRange,
+              tickformat: ".1f",
+              zeroline: false,
+              gridcolor: "rgba(148,163,184,0.25)",
+            },
+          }}
+          config={{ responsive: true, displayModeBar: false }}
+          style={{ width: "100%" }}
+          useResizeHandler
+        />
+      )}
 
-        <h4>Lowest efficiency, check first</h4>
-        {lowest.length === 0 ? (
-          <span className="muted" style={{ fontSize: "0.8rem" }}>
-            Nothing to rank yet.
-          </span>
-        ) : (
-          <ol className="eff-lowest">
-            {lowest.map((p) => (
-              <li key={p.v.plate}>
-                <b>{p.v.plate}</b> · {p.v.customer} · {fmtEff(p.kmPerKwh)}
-              </li>
-            ))}
-          </ol>
-        )}
-      </aside>
+      {missingByCustomer.length > 0 && (
+        <div className="muted eff-foot">
+          Not plotted, no kWh from Fleetx in the last {period} days:{" "}
+          {missingByCustomer.map(([c, n]) => `${c} (${n})`).join(", ")}
+        </div>
+      )}
     </section>
   )
 }
@@ -344,7 +308,7 @@ function EfficiencyTable({ points, period }: { points: EffPoint[]; period: Perio
             <th>Customer</th>
             <th>Type</th>
             <th style={{ textAlign: "right" }}>Lifetime odometer</th>
-            <th style={{ textAlign: "right" }}>{period === "lifetime" ? "Energy to date" : `Energy, last ${period} days`}</th>
+            <th style={{ textAlign: "right" }}>Energy, last {period} days</th>
             <th style={{ textAlign: "right" }}>Efficiency</th>
           </tr>
         </thead>

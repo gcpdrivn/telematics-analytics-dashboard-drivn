@@ -128,6 +128,10 @@ export function GlossaryPage() {
               "Km per 1% of battery, from a fixed benchmark sheet (not the date range). Values of 10+ are dropped as sensor errors.",
             ],
             [
+              "Avg Mileage (km/kWh)",
+              "On the customer cards: the customer's total km ÷ total kWh from Fleetx over the selected dates, counting only days with an energy reading (device-fault days of 1,500+ km left out). Shown as — when Fleetx has no kWh for that customer.",
+            ],
+            [
               "Est. Daily SoC",
               "Avg km/day ÷ mileage: the share of a full battery used on a typical active day. Over 100% means more than one charge a day.",
             ],
@@ -177,8 +181,8 @@ export function GlossaryPage() {
         <p>
           The cards follow the page (all customers, buses or trucks) and only count vehicles that drove in the range.{" "}
           <b>Distance / Day</b> and <b>Operating Time / Day</b> are fleet totals ÷ days in the range; the ⚡ and ⏱️
-          lines are per-vehicle averages. <b>Peak Active</b> is the vehicle with the most active days (ties: higher Avg
-          km/day); <b>Top Customer Account</b> is the customer with the most km.
+          lines are per-vehicle averages. <b>Peak Active</b> (Buses and Trucks pages) is the vehicle with the most
+          active days (ties: higher Avg km/day).
         </p>
 
         <h3>Customers page</h3>
@@ -224,10 +228,9 @@ export function GlossaryPage() {
           </li>
           <li>
             <ChartLink to="/#efficiency-odometer">Energy Efficiency vs Odometer</ChartLink>: one dot per vehicle, buses
-            and trucks in separate rows (● bus, ◆ truck). x = lifetime odometer (km); y = energy efficiency (km/kWh) =
-            lifetime km ÷ lifetime kWh consumed, from Fleetx. Not affected by the date range. The side panel shows each
-            customer's median km/kWh and the three least efficient vehicles. A vehicle without lifetime kWh yet is listed
-            as not plotted.
+            and trucks side by side (● bus, ◆ truck). x = lifetime odometer (km); y = energy efficiency (km/kWh) = km ÷
+            kWh over the last 7 or 3 days, from Fleetx. Not affected by the page's date range. Both charts share one
+            y-axis range. A vehicle with no kWh in the chosen days is listed as not plotted.
           </li>
         </ul>
         <GTable

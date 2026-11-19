@@ -152,9 +152,12 @@ def apply_fleetx_distance(df_clean: pd.DataFrame) -> pd.DataFrame:
     return df_clean
 
 
-def _with_energy(active_stats: pd.DataFrame) -> pd.DataFrame:
+def _with_energy(
+    active_stats: pd.DataFrame, start_date: dt.date | None = None, end_date: dt.date | None = None
+) -> pd.DataFrame:
     """Adds the Fleetx mirror's per-vehicle figures: km/kWh (lifetime and
-    last 3/7/15 days) and the odometer as the app shows it."""
+    last 3/7/15 days), the km and kWh behind km/kWh over the page's date
+    range, and the odometer as the app shows it."""
     energy, daily, live = _fleetx("energy"), _fleetx("daily"), _fleetx("live")
     if energy is None:
         return active_stats
@@ -178,6 +181,17 @@ def _with_energy(active_stats: pd.DataFrame) -> pd.DataFrame:
                     "km_per_kwh": round(float(row["km"] / row["kwh"]), 3) if row["kwh"] > 0 else None,
                 }
         active_stats["energy_windows"] = plates.map(lambda p: windows.get(p))
+        # The page's date range: km and kWh over the days that carry an energy
+        # reading, so km ÷ kWh is not inflated by days without one; device-fault
+        # days (the same >= 1,500 km cap as Distance) are left out.
+        part = daily[(daily["kwh"] > 0) & (daily["km"] < MAX_PLAUSIBLE_DAILY_DISTANCE_KM)]
+        if start_date is not None:
+            part = part[part["date"] >= start_date]
+        if end_date is not None:
+            part = part[part["date"] <= end_date]
+        rng = part.groupby("base_license_plate")[["km", "kwh"]].sum()
+        active_stats["range_energy_km"] = plates.map(rng["km"])
+        active_stats["range_energy_kwh"] = plates.map(rng["kwh"])
         active_stats["energy_window_end"] = end.isoformat()
     # Odometer = the app's vehicle card (merged live view). A reading far
     # below the vehicle's own history (e.g. a merged view briefly showing
@@ -354,6 +368,19 @@ def _load_all() -> dict[str, pd.DataFrame]:
             metrics.FIXED_FLEET_SIZE[cust] = base + int(added.get(cust, 0))
         logger.info("Local overlay: added %d extra vehicle(s) from %s", len(extra_dim), _EXTRA_DIR)
 
+    # LOCAL-ONLY customer routes (shown on the customer cards), from a JSON
+    # file {customer: route}. A no-op unless LOCAL_CUSTOMER_ROUTES is set.
+    routes_file = os.environ.get("LOCAL_CUSTOMER_ROUTES", "").strip()
+    if routes_file:
+        path = Path(routes_file)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent.parent / path
+        if path.exists():
+            overrides = json.loads(path.read_text(encoding="utf-8"))
+            dim_customer = dim_customer.copy()
+            known = dim_customer["customer_name"].isin(overrides)
+            dim_customer.loc[known, "routes_description"] = dim_customer.loc[known, "customer_name"].map(overrides)
+
     return {
         "raw_utilization": raw_df,
         "dim_vehicle": dim_vehicle,
@@ -468,7 +495,9 @@ def get_clean_context(
         # `derived` bundle -- Bus tenure (build_active_stats) depends on this
         # being the size of the window actually in scope here.
         observation_days = float(df_clean["Report Date"].dt.normalize().nunique()) or 1.0
-        active_stats = _with_energy(metrics.build_active_stats(df_clean, mileage_valid, observation_days))
+        active_stats = _with_energy(
+            metrics.build_active_stats(df_clean, mileage_valid, observation_days), start_date, end_date
+        )
 
     return {
         "df_clean": df_clean,

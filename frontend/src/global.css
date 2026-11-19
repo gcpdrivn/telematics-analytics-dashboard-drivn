@@ -135,6 +135,7 @@ body {
 
 /* KPI cards */
 .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 2.25rem; }
+.kpi-row.kpi-row-3 { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 1024px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .kpi-row { grid-template-columns: 1fr; } }
 
@@ -284,6 +285,39 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .progress-track { height: 6px; background: var(--border-subtle); border-radius: 9999px; overflow: hidden; }
 .progress-bar { height: 100%; background: var(--accent-brand); border-radius: 9999px; }
 
+/* Customer card, "paired tiles" design */
+.customer-card { display: flex; flex-direction: column; }
+.customer-oem { font-size: 0.75rem; color: var(--text-muted); }
+.customer-card .customer-route { color: var(--text-secondary); }
+.customer-route-icon { color: var(--color-bottom); display: inline-flex; }
+.customer-card .customer-pill-stack { margin-bottom: 6px; }
+.customer-card svg { width: 14px; height: 14px; }
+.cc-pill-label { display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: var(--text-primary); }
+.cc-pill-icon { display: inline-flex; color: var(--text-secondary); }
+.cc-pill-icon.brand, .cc-pill-value.brand { color: var(--accent-brand-strong); }
+.cc-pill-value { font-weight: 700; white-space: nowrap; color: var(--text-primary); }
+.cc-tile {
+  background: var(--bg-subtle); border: 1px solid var(--border-subtle); border-radius: 6px;
+  padding: 0.6rem 0.75rem; margin-bottom: 6px;
+}
+.cc-tile:last-child { margin-bottom: 0; }
+.cc-tile-label {
+  display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem;
+  font-size: 0.675rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+}
+.cc-split { display: grid; grid-template-columns: 1fr 1fr; }
+.cc-split > div:first-child { padding-right: 0.65rem; }
+.cc-split-right { border-left: 1px solid var(--border-strong); padding-left: 0.65rem; }
+.cc-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.cc-big { font-size: 1.05rem; font-weight: 800; color: var(--text-primary); font-variant-numeric: tabular-nums; line-height: 1.25; white-space: nowrap; }
+.cc-unit { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+.cc-cap { font-size: 0.7rem; color: var(--text-secondary); margin-top: 1px; }
+.cc-share { font-size: 0.85rem; font-weight: 800; color: var(--accent-brand-strong); font-variant-numeric: tabular-nums; }
+.cc-track { height: 5px; background: var(--border-subtle); border-radius: 9999px; overflow: hidden; margin-top: 0.3rem; }
+.cc-row + .cc-track { margin: 0.35rem 0 0.25rem; }
+.cc-bar { height: 100%; background: var(--accent-brand-strong); border-radius: 9999px; }
+.cc-bar.blue { background: var(--color-blue); }
+
 
 /* Vehicle Uptime Calendar */
 .uptime-toolbar {
@@ -353,6 +387,26 @@ tr.row-below-80:hover td { background: rgba(224, 36, 36, 0.12) !important; }
 .glossary .chart-link-sample { color: var(--accent-brand); font-weight: 700; }
 
 /* Energy Efficiency vs Odometer card (CustomersPage #efficiency-odometer) */
+.eff-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
+.eff-subtitle { font-size: 0.82rem; margin: 0; flex: 1 1 320px; }
+.eff-top-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.eff-help { color: var(--accent-brand); font-weight: 600; font-size: 0.82rem; text-decoration: none; white-space: nowrap; }
+.eff-help:hover { text-decoration: underline; }
+.eff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+@media (max-width: 1024px) { .eff-grid { grid-template-columns: 1fr; } }
+.eff-card { min-width: 0; padding: 1.1rem 1.1rem 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; }
+.eff-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.eff-card-head h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+.eff-card-head .muted { font-size: 0.8rem; }
+.eff-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.75rem 0 0.25rem; }
+.eff-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.7rem; border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--bg-surface); color: var(--text-primary); font-size: 0.8rem; cursor: pointer; user-select: none; }
+.eff-chip:hover { border-color: var(--border-strong); }
+.eff-chip.off { opacity: 0.4; }
+.eff-chip-mark { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.eff-chip-mark.diamond { border-radius: 1px; transform: rotate(45deg); width: 8px; height: 8px; }
+.eff-foot { font-size: 0.8rem; margin-top: 0.5rem; }
+.eff-bottom { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+.eff-note { font-size: 0.8rem; }
 .eff-section { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1.25rem; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; }
 .eff-section + .eff-section { margin-top: 1rem; }
 @media (max-width: 900px) { .eff-section { grid-template-columns: 1fr; } }

@@ -79,7 +79,7 @@ export function CustomersPage() {
 
   return (
     <>
-      <KpiCards kpi={kpi} hideFleetBreakdown />
+      <KpiCards kpi={kpi} hideFleetBreakdown hidePeak />
 
       <div className="panel filter-bar">
         <span className="filter-bar-label">Filter by Customer</span>
@@ -139,7 +139,14 @@ export function CustomersPage() {
         <div className="panel-body">
           {effError && <div className="error-box">Failed to load efficiency data: {effError}</div>}
           {!eff && !effError && <div className="loading">Loading efficiency data…</div>}
-          {eff && <EfficiencyOdometerChart buses={eff.buses} trucks={eff.trucks} customer={customer} />}
+          {eff && (
+            <EfficiencyOdometerChart
+              buses={eff.buses}
+              trucks={eff.trucks}
+              customer={customer}
+              oemByCustomer={Object.fromEntries(analytics.customers_all.map((c) => [c.customer, c.oem]))}
+            />
+          )}
         </div>
       </div>
     </>

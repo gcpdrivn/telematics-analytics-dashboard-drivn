@@ -609,6 +609,12 @@ def build_customer_profiles(active_stats: pd.DataFrame, dim_customer: pd.DataFra
         c_tot_days_avg = float(c_df["total_days"].mean())
         share_pct = (c_dist / total_fleet_dist) * 100.0 if total_fleet_dist > 0 else 0.0
         c_mileage_mean = c_df["mileage_km_soc"].dropna().mean()
+        # km/kWh over the date range (Fleetx km ÷ Fleetx kWh), when available.
+        c_mileage_kwh = None
+        if "range_energy_kwh" in c_df:
+            c_kwh = float(c_df["range_energy_kwh"].sum(skipna=True))
+            if c_kwh > 0:
+                c_mileage_kwh = float(c_df["range_energy_km"].sum(skipna=True)) / c_kwh
 
         valid_vols = c_df[c_df["active_days_count"] > 1]
         if not valid_vols.empty:
@@ -639,6 +645,7 @@ def build_customer_profiles(active_stats: pd.DataFrame, dim_customer: pd.DataFra
                 "share_pct": share_pct,
                 "oem": c_df["oem_desc"].iloc[0],
                 "avg_mileage_soc": float(c_mileage_mean) if pd.notna(c_mileage_mean) else None,
+                "avg_mileage_kwh": c_mileage_kwh,
                 "avg_std_active": c_avg_std,
                 "avg_cv_pct": c_avg_cv,
                 "vol_tier": c_vol_tier,

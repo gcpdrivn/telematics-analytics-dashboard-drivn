@@ -110,8 +110,7 @@ export function CustomersPage() {
             <DailyDistanceBar customers={filteredCustomers} />
           </div>
         </div>
-        <div className="panel" id="fleet-distance-share">
-          <div className="panel-header">Fleet Distance Share</div>
+        <div className="panel donut-panel" id="fleet-distance-share">
           <div className="panel-body">
             <ShareDonut customers={analytics.customers_all} highlight={customer === "All" ? null : customer} />
           </div>
